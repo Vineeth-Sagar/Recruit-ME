@@ -1,0 +1,27 @@
+# Normalize line endings: text files are LF in the repo, checked out native.
+* text=auto eol=lf
+
+# Always LF — these break with CRLF
+*.sh    text eol=lf
+*.py    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+Dockerfile   text eol=lf
+Makefile     text eol=lf
+*.mk    text eol=lf
+
+# Binary — never touch
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.pdf   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.xlsx  binary

@@ -1,0 +1,1692 @@
+<title>EZ-Recruit Multi-Tenant Rearchitecture</title>
+<meta name="description" content="Analysis of the current single-user EZ-Recruit automation and a target architecture for turning it into an open-source multi-tenant SaaS.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --paper: #f4f6f8;
+    --surface: #ffffff;
+    --surface-2: #eceff3;
+    --ink: #191e29;
+    --ink-soft: #48505f;
+    --ink-faint: #767e8c;
+    --rule: #dce0e7;
+    --rule-strong: #c3c9d3;
+    --accent: #1f6f5c;
+    --accent-ink: #17513f;
+    --accent-soft: #e2efe9;
+    --warn: #8f5a12;
+    --warn-soft: #f5ebda;
+    --crit: #a63a3a;
+    --crit-soft: #f3e1e0;
+    --shadow: 0 1px 2px rgba(20,26,38,.06), 0 6px 20px -12px rgba(20,26,38,.18);
+
+    --measure: 43rem;
+    --wide: 66rem;
+    --step--1: .82rem;
+    --step-0: 1rem;
+    --step-1: 1.2rem;
+    --step-2: 1.48rem;
+    --step-3: 1.95rem;
+    --step-4: 2.7rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #10131a;
+      --surface: #171b23;
+      --surface-2: #1e232d;
+      --ink: #e6e9ef;
+      --ink-soft: #a7afbc;
+      --ink-faint: #79818f;
+      --rule: #292f3a;
+      --rule-strong: #39414e;
+      --accent: #4bc4a4;
+      --accent-ink: #8fdcc7;
+      --accent-soft: #14302a;
+      --warn: #d69b4d;
+      --warn-soft: #2c2416;
+      --crit: #db7d77;
+      --crit-soft: #2d1c1b;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -14px rgba(0,0,0,.55);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #10131a;
+    --surface: #171b23;
+    --surface-2: #1e232d;
+    --ink: #e6e9ef;
+    --ink-soft: #a7afbc;
+    --ink-faint: #79818f;
+    --rule: #292f3a;
+    --rule-strong: #39414e;
+    --accent: #4bc4a4;
+    --accent-ink: #8fdcc7;
+    --accent-soft: #14302a;
+    --warn: #d69b4d;
+    --warn-soft: #2c2416;
+    --crit: #db7d77;
+    --crit-soft: #2d1c1b;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -14px rgba(0,0,0,.55);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: var(--step-0);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: 0 1.5rem 6rem;
+  }
+  .col { max-width: var(--measure); }
+  .wide { max-width: var(--wide); }
+
+  /* ---- header ---- */
+  header.masthead {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: 3.5rem 1.5rem 2rem;
+  }
+  .kicker {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 1rem;
+  }
+  h1 {
+    font-size: var(--step-4);
+    line-height: 1.08;
+    letter-spacing: -.02em;
+    font-weight: 700;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: var(--step-1);
+    color: var(--ink-soft);
+    max-width: 34rem;
+    margin: 0 0 2rem;
+    text-wrap: pretty;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    color: var(--ink-faint);
+  }
+  .meta b { color: var(--ink-soft); font-weight: 500; }
+  .meta a { color: var(--accent-ink); }
+
+  /* ---- layout with side nav ---- */
+  .shell { max-width: var(--wide); margin: 0 auto; padding: 0 1.5rem; }
+  .layout { display: block; }
+  nav.toc {
+    display: none;
+  }
+  @media (min-width: 78rem) {
+    .layout {
+      display: grid;
+      grid-template-columns: 12.5rem minmax(0, 1fr);
+      gap: 3.5rem;
+      align-items: start;
+    }
+    nav.toc {
+      display: block;
+      position: sticky;
+      top: 2rem;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: .76rem;
+      line-height: 1.5;
+    }
+    nav.toc ol { list-style: none; margin: 0; padding: 0; }
+    nav.toc li { margin: 0 0 .55rem; }
+    nav.toc a {
+      color: var(--ink-faint);
+      text-decoration: none;
+      display: block;
+      border-left: 2px solid var(--rule);
+      padding-left: .7rem;
+      transition: color .15s, border-color .15s;
+    }
+    nav.toc a:hover { color: var(--ink); border-color: var(--rule-strong); }
+    nav.toc .num { color: var(--accent-ink); }
+  }
+
+  section { margin: 4.5rem 0 0; scroll-margin-top: 2rem; }
+  section.lead { margin-top: 2.5rem; }
+  h2 {
+    font-size: var(--step-3);
+    letter-spacing: -.015em;
+    font-weight: 700;
+    line-height: 1.15;
+    margin: 0 0 .4rem;
+    text-wrap: balance;
+  }
+  h2 .sec-no {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--accent-ink);
+    margin-right: .8rem;
+    letter-spacing: 0;
+  }
+  h3 {
+    font-size: var(--step-1);
+    font-weight: 600;
+    letter-spacing: -.01em;
+    margin: 2.6rem 0 .6rem;
+  }
+  h4 {
+    font-size: var(--step-0);
+    font-weight: 600;
+    margin: 1.8rem 0 .4rem;
+  }
+  .section-sub {
+    color: var(--ink-soft);
+    max-width: var(--measure);
+    margin: 0 0 1.5rem;
+  }
+  p { max-width: var(--measure); margin: 0 0 1rem; }
+  p.col-wide { max-width: var(--wide); }
+  ul, ol { max-width: var(--measure); padding-left: 1.2rem; margin: 0 0 1rem; }
+  li { margin: 0 0 .5rem; }
+  li::marker { color: var(--ink-faint); }
+  strong { font-weight: 600; }
+  code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .87em;
+    background: var(--surface-2);
+    padding: .12em .38em;
+    border-radius: 4px;
+    border: 1px solid var(--rule);
+  }
+  a { color: var(--accent-ink); }
+
+  hr.rule {
+    border: 0;
+    border-top: 1px solid var(--rule);
+    margin: 3rem 0;
+    max-width: var(--wide);
+  }
+
+  /* ---- figures ---- */
+  figure {
+    margin: 2rem 0;
+    max-width: var(--wide);
+  }
+  .figframe {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 1.6rem 1.4rem 1.2rem;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+  }
+  figure svg { display: block; width: 100%; height: auto; min-width: 640px; }
+  figcaption {
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    margin-top: .9rem;
+    padding-left: .1rem;
+    max-width: 46rem;
+  }
+  figcaption b { color: var(--ink); font-weight: 600; }
+
+  /* ---- callout / cards ---- */
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 1.1rem 1.25rem;
+    margin: 1.5rem 0;
+    max-width: var(--measure);
+  }
+  .note.warn { border-left-color: var(--warn); }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+  .note .note-h {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .74rem;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: var(--ink-faint);
+    margin: 0 0 .5rem;
+  }
+
+  /* ---- chips ---- */
+  .chip {
+    display: inline-block;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .68rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: .16em .5em;
+    border-radius: 4px;
+    border: 1px solid var(--rule-strong);
+    color: var(--ink-soft);
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .chip.core { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
+  .chip.config { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+  .chip.replace { background: var(--crit-soft); color: var(--crit); border-color: transparent; }
+
+  /* ---- tables ---- */
+  .tablewrap { overflow-x: auto; margin: 1.5rem 0; max-width: var(--wide); }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: .92rem;
+    min-width: 34rem;
+  }
+  th, td {
+    text-align: left;
+    padding: .7rem .9rem;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  thead th {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .7rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--ink-faint);
+    border-bottom: 1px solid var(--rule-strong);
+    font-weight: 500;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td code { background: transparent; border: 0; padding: 0; color: var(--ink-soft); }
+  .t-mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .82rem; }
+
+  /* ---- numbered risk list ---- */
+  .risks { list-style: none; padding: 0; max-width: var(--wide); counter-reset: risk; }
+  .risks > li {
+    counter-increment: risk;
+    display: grid;
+    grid-template-columns: 2rem 1fr;
+    gap: .3rem 1rem;
+    padding: 1.1rem 0;
+    border-bottom: 1px solid var(--rule);
+    margin: 0;
+  }
+  .risks > li::before {
+    content: counter(risk, decimal-leading-zero);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .8rem;
+    color: var(--ink-faint);
+    padding-top: .15rem;
+  }
+  .risks .r-head { font-weight: 600; display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap; }
+  .risks .r-body { grid-column: 2; color: var(--ink-soft); font-size: .93rem; max-width: 44rem; }
+  .risks .r-body { margin: 0; }
+  .sev {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .64rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: .14em .5em;
+    border-radius: 3px;
+  }
+  .sev.high { background: var(--crit-soft); color: var(--crit); }
+  .sev.med { background: var(--warn-soft); color: var(--warn); }
+
+  /* ---- data model ---- */
+  .entities { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .9rem; max-width: var(--wide); margin: 1.5rem 0; }
+  .entity {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: .9rem 1rem 1rem;
+  }
+  .entity h5 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .82rem;
+    margin: 0 0 .5rem;
+    color: var(--accent-ink);
+    letter-spacing: .02em;
+  }
+  .entity ul { list-style: none; padding: 0; margin: 0; font-size: .82rem; line-height: 1.5; color: var(--ink-soft); }
+  .entity li { margin: 0 0 .15rem; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .entity li b { color: var(--ink); font-weight: 600; }
+  .entity .enc { color: var(--warn); }
+
+  /* ---- phase list ---- */
+  .phases { list-style: none; padding: 0; counter-reset: phase; max-width: var(--wide); }
+  .phases > li {
+    counter-increment: phase;
+    display: grid;
+    grid-template-columns: 2.4rem 1fr;
+    gap: 1rem;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .phases > li::before {
+    content: counter(phase);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-weight: 600;
+    color: var(--accent-ink);
+    font-size: 1rem;
+    padding-top: .1rem;
+  }
+  .phases b { font-weight: 600; }
+  .phases .p-body { color: var(--ink-soft); font-size: .92rem; margin: .2rem 0 0; }
+
+  pre.tree, pre.sig {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .76rem;
+    line-height: 1.55;
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    margin: 1rem 0;
+    max-width: var(--wide);
+    color: var(--ink-soft);
+    white-space: pre;
+  }
+  pre.sig { background: var(--surface); color: var(--ink); }
+  pre.sig .c { color: var(--ink-faint); }
+  .label-mono {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .68rem;
+    text-transform: uppercase;
+    letter-spacing: .11em;
+    color: var(--ink-faint);
+    margin: 1.5rem 0 .3rem;
+  }
+  .phase-head {
+    display: flex;
+    align-items: baseline;
+    gap: .7rem;
+    flex-wrap: wrap;
+    margin: 2.6rem 0 .2rem;
+    padding-top: 1.8rem;
+    border-top: 1px solid var(--rule-strong);
+    scroll-margin-top: 2rem;
+  }
+  .phase-head .pnum {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 1rem;
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  .phase-head h3 { margin: 0; }
+  .phase-goal { color: var(--ink-soft); font-size: .95rem; margin: .35rem 0 1rem; max-width: var(--measure); }
+  ul.verify { list-style: none; padding-left: 0; max-width: var(--measure); margin: .6rem 0 1rem; }
+  ul.verify li { padding-left: 1.5rem; position: relative; margin-bottom: .4rem; font-size: .93rem; color: var(--ink-soft); }
+  ul.verify li::before { content: "\2713"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+  ul.verify li b, ul.verify li code { color: var(--ink); }
+
+  .decided {
+    display: inline-block;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .64rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: .14em .5em;
+    border-radius: 3px;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+  }
+  .decisions-locked {
+    margin: 2.5rem 0 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 1.1rem 1.25rem;
+    max-width: var(--wide);
+  }
+  .decisions-locked .note-h {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .74rem;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: var(--ink-faint);
+    margin: 0 0 .7rem;
+  }
+  .decisions-locked ul { margin: 0; max-width: var(--measure); }
+  .decisions-locked li { margin: 0 0 .35rem; }
+  .decisions-locked li:last-child { margin-bottom: 0; }
+
+  .endnote {
+    margin-top: 4rem;
+    padding: 1.6rem 1.5rem;
+    background: var(--accent-soft);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    max-width: var(--wide);
+  }
+  .endnote h3 { margin: 0 0 .5rem; }
+  .endnote p { max-width: 44rem; margin-bottom: .6rem; color: var(--accent-ink); }
+  :root[data-theme="dark"] .endnote p,
+  :root:not([data-theme="light"]) .endnote p { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+</style>
+
+<header class="masthead">
+  <p class="kicker">Architecture &amp; build plan &nbsp;·&nbsp; Steps 1&ndash;3 &nbsp;·&nbsp; approved — Phase 1 next</p>
+  <h1>EZ-Recruit as a multi-tenant product</h1>
+  <p class="standfirst">Read of the current single-user automation, and a target design for running the same engine for every signed-up user without one tenant breaking the rest.</p>
+  <div class="meta">
+    <span><b>Source</b> github.com/Vineeth-Sagar/EZ-Recruit</span>
+    <span><b>Today</b> in-repo name is <code>OpportunityBot</code></span>
+    <span><b>Scope</b> discovery + matching + alerting (no auto-apply)</span>
+    <span><b>Next</b> your approval &rarr; Step 3 build plan</span>
+  </div>
+</header>
+
+<div class="shell">
+<div class="layout">
+
+<nav class="toc" aria-label="Contents">
+  <ol>
+    <li><a href="#analysis"><span class="num">§1</span> Analysis</a></li>
+    <li><a href="#flow"><span class="num">1.1</span> End to end</a></li>
+    <li><a href="#surfaces"><span class="num">1.2</span> External surfaces</a></li>
+    <li><a href="#reuse"><span class="num">1.3</span> Reuse vs. rewrite</a></li>
+    <li><a href="#fragile"><span class="num">1.4</span> Fragile assumptions</a></li>
+    <li><a href="#architecture"><span class="num">§2</span> Architecture</a></li>
+    <li><a href="#overview"><span class="num">2.1</span> System overview</a></li>
+    <li><a href="#datamodel"><span class="num">2.2</span> Data model</a></li>
+    <li><a href="#execution"><span class="num">2.3</span> Execution model</a></li>
+    <li><a href="#auth"><span class="num">2.4</span> Auth &amp; RBAC</a></li>
+    <li><a href="#api"><span class="num">2.5</span> API layer</a></li>
+    <li><a href="#frontend"><span class="num">2.6</span> Frontend</a></li>
+    <li><a href="#scale"><span class="num">2.7</span> Scalability</a></li>
+    <li><a href="#storage"><span class="num">2.8</span> Storage</a></li>
+    <li><a href="#deploy"><span class="num">2.9</span> Deployment</a></li>
+    <li><a href="#tos"><span class="num">§3</span> ToS &amp; legal</a></li>
+    <li><a href="#plan"><span class="num">§4</span> Build plan</a></li>
+    <li><a href="#p1"><span class="num">4.1</span> Repo restructure</a></li>
+    <li><a href="#p2"><span class="num">4.2</span> Auth + accounts</a></li>
+    <li><a href="#p3"><span class="num">4.3</span> Profile builder</a></li>
+    <li><a href="#p4"><span class="num">4.4</span> Queued engine</a></li>
+    <li><a href="#p5"><span class="num">4.5</span> Dashboard</a></li>
+    <li><a href="#p6"><span class="num">4.6</span> Settings + secrets</a></li>
+    <li><a href="#p7"><span class="num">4.7</span> Deployment</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<div class="decisions-locked">
+  <p class="note-h">Decisions locked in this thread &nbsp;·&nbsp; feed into Step 3</p>
+  <ul>
+    <li><span class="decided">queue</span> &nbsp;<strong>Arq</strong> on Redis — async, light, matches FastAPI.</li>
+    <li><span class="decided">email</span> &nbsp;Transactional provider as the platform sender — default <strong>Resend</strong>, sender abstracted so SES / Postmark is a config swap.</li>
+    <li><span class="decided">sources</span> &nbsp;<strong>Keep</strong> JobSpy (LinkedIn / Indeed / Glassdoor), Wellfound (borrowed Algolia key), YC, HN; SerpAPI optional / user-key. <strong>Drop</strong> Naukri, Unstop, Internshala, Cutshort.</li>
+    <li><span class="decided">consent</span> &nbsp;JobSpy big-3 ship behind a per-profile <code>big3_optin</code> flag, off by default; disclosure copy + toggle land in Phase 4.6.</li>
+  </ul>
+</div>
+
+<section class="lead" id="analysis">
+  <h2><span class="sec-no">§1</span>What the automation actually is</h2>
+  <p class="section-sub">The repo README calls it an "AI-powered daily job alert system." That is accurate and worth stating plainly up front: <strong>it discovers and ranks jobs and emails you a report. It never logs into a job site as you and never submits an application.</strong> That single fact shapes most of the design and most of the legal questions below.</p>
+</section>
+
+<section id="flow">
+  <h3>1.1 &nbsp;End-to-end behaviour</h3>
+  <p>There is no server. The Git repo is the database, GitHub Actions is the scheduler and compute, and a Streamlit app on Streamlit Community Cloud is the settings UI. A run is one execution of <code>job_hunter/main.py</code>:</p>
+  <ol>
+    <li><strong>Configure.</strong> The Streamlit app writes <code>config.json</code> and, on save, pushes it (and uploaded résumé PDFs) into the GitHub repo through the GitHub API using a Personal Access Token (<code>GH_PAT</code>). The repo <em>is</em> the persistence layer.</li>
+    <li><strong>Trigger.</strong> A cron workflow (<code>daily_job_hunt.yml</code>, <code>30 1 * * *</code> UTC = 07:00 IST), or a <code>workflow_dispatch</code> fired from the app's "Test Run" page, checks out the repo and runs <code>main.py</code>.</li>
+    <li><strong>Load.</strong> <code>load_config()</code> parses <code>config.json</code> into dataclasses. Secrets come from Actions env vars: <code>OPENROUTER_API_KEY</code>, <code>GMAIL_APP_PASSWORD</code>, <code>SERPAPI_API_KEY</code>, <code>GH_PAT</code>.</li>
+    <li><strong>Parse résumés.</strong> PyMuPDF extracts text; an OpenRouter LLM (<code>nvidia/nemotron-3-super-120b-a12b:free</code>) returns structured JSON. The parse is cached back into <code>config.json</code>, keyed by a SHA-256 of the PDF bytes, to avoid re-spending free-tier quota on an unchanged file.</li>
+    <li><strong>Scrape.</strong> <code>run_scrapers()</code> runs enabled sources in a <code>ThreadPoolExecutor</code> (one thread per source, 300&nbsp;s soft timeout) and merges results into a common job dict.</li>
+    <li><strong>Deduplicate.</strong> <code>data/seen_jobs.db</code> — a SQLite file kept in an Actions cache, not committed. Key is <code>md5(company|title|source)</code>.</li>
+    <li><strong>Match.</strong> <code>batch_match_jobs_against_all_profiles()</code> sends batches of 20 jobs, one OpenRouter call per batch per résumé profile, <code>temperature 0</code>, <code>time.sleep(6)</code> between calls (free tier ≈ 10 RPM), exponential backoff on 429. If every job falls back to keyword scoring, the run emails an error alert instead of a misleading report.</li>
+    <li><strong>Report &amp; send.</strong> <code>build_excel()</code> (openpyxl, 4 sheets) then <code>send_report_email()</code> over Gmail SMTP with an app password. The Actions job then commits <code>config.json</code> + <code>data/reports/*.xlsx</code> back to the repo.</li>
+    <li><strong>Review.</strong> Streamlit pages read those Excel files (local or via GitHub API) for the History and "Today's Matches" views; the Test Run page polls the Actions REST API with the PAT for live step progress.</li>
+  </ol>
+
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 980 430" role="img" aria-label="Current single-tenant data flow: the Streamlit app pushes config and resumes into a Git repo; a GitHub Actions cron checks out the repo and runs main.py, which scrapes job boards, calls OpenRouter, sends Gmail, and commits reports back to the repo.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <g font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">
+          <!-- nodes -->
+          <g>
+            <rect x="12" y="150" width="150" height="60" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="87" y="176" text-anchor="middle" font-weight="600">Streamlit app</text>
+            <text x="87" y="194" text-anchor="middle" font-size="10.5" fill="var(--ink-faint)">settings UI</text>
+          </g>
+          <g>
+            <rect x="255" y="140" width="170" height="80" rx="7" fill="var(--accent-soft)" stroke="var(--accent)"/>
+            <text x="340" y="170" text-anchor="middle" font-weight="600" fill="var(--accent-ink)">Git repo</text>
+            <text x="340" y="188" text-anchor="middle" font-size="10" fill="var(--accent-ink)">config.json · resumes/</text>
+            <text x="340" y="203" text-anchor="middle" font-size="10" fill="var(--accent-ink)">data/reports/*.xlsx</text>
+          </g>
+          <g>
+            <rect x="255" y="20" width="170" height="56" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="340" y="43" text-anchor="middle" font-weight="600">GitHub Actions</text>
+            <text x="340" y="60" text-anchor="middle" font-size="10.5" fill="var(--ink-faint)">cron 07:00 IST</text>
+          </g>
+          <g>
+            <rect x="520" y="140" width="160" height="80" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="600" y="170" text-anchor="middle" font-weight="600">main.py</text>
+            <text x="600" y="188" text-anchor="middle" font-size="10" fill="var(--ink-faint)">scrape · dedupe</text>
+            <text x="600" y="203" text-anchor="middle" font-size="10" fill="var(--ink-faint)">match · build · send</text>
+          </g>
+          <g>
+            <rect x="785" y="20" width="180" height="52" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="875" y="43" text-anchor="middle">10 job boards</text>
+            <text x="875" y="60" text-anchor="middle" font-size="10" fill="var(--ink-faint)">LinkedIn · Naukri · YC …</text>
+          </g>
+          <g>
+            <rect x="785" y="154" width="180" height="52" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="875" y="177" text-anchor="middle">OpenRouter LLM</text>
+            <text x="875" y="194" text-anchor="middle" font-size="10" fill="var(--ink-faint)">free-tier model</text>
+          </g>
+          <g>
+            <rect x="785" y="286" width="180" height="52" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="875" y="309" text-anchor="middle">Gmail SMTP</text>
+            <text x="875" y="326" text-anchor="middle" font-size="10" fill="var(--ink-faint)">&rarr; your inbox</text>
+          </g>
+          <g>
+            <rect x="520" y="300" width="160" height="46" rx="7" fill="none" stroke="var(--rule-strong)" stroke-dasharray="4 3"/>
+            <text x="600" y="322" text-anchor="middle" font-size="10.5" fill="var(--ink-faint)">seen_jobs.db</text>
+            <text x="600" y="336" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">Actions cache</text>
+          </g>
+
+          <!-- edges -->
+          <g stroke="currentColor" stroke-width="1.5" fill="none">
+            <path d="M162 178 L250 178" marker-end="url(#ah)"/>
+            <path d="M340 140 L340 78" marker-end="url(#ah)"/>
+            <path d="M425 62 L520 130 L520 138" marker-end="url(#ah)"/>
+            <path d="M425 180 L515 180" marker-end="url(#ah)"/>
+            <path d="M680 168 L783 150 L783 46" marker-end="url(#ah)"/>
+            <path d="M680 180 L783 180" marker-end="url(#ah)"/>
+            <path d="M680 196 L783 240 L783 300" marker-end="url(#ah)"/>
+            <path d="M600 220 L600 298" marker-end="url(#ah)"/>
+            <path d="M560 300 C540 260 460 240 426 214" marker-end="url(#ah)"/>
+          </g>
+          <g font-size="10" fill="var(--ink-faint)">
+            <text x="206" y="170" text-anchor="middle">push (PAT)</text>
+            <text x="349" y="112" text-anchor="start">checkout</text>
+            <text x="470" y="120" text-anchor="middle">dispatch</text>
+            <text x="470" y="172" text-anchor="middle">read</text>
+            <text x="470" y="292" text-anchor="middle">commit xlsx</text>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>The repo is the database, a cron workflow is the scheduler, and every write is a <code>git commit</code>.</b> Those three properties are exactly what does not survive a second tenant.</figcaption>
+  </figure>
+</section>
+
+<section id="surfaces">
+  <h3>1.2 &nbsp;External surfaces it touches</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Source</th><th>Method</th><th>Standing</th></tr></thead>
+      <tbody>
+        <tr><td>LinkedIn, Indeed, Glassdoor</td><td><code>python-jobspy</code> library scraping</td><td>Against each site's ToS; bot-walled from one IP — <b>kept</b>, big-3 recommended bring-your-own in Phase 4</td></tr>
+        <tr><td>Naukri</td><td>Undocumented <code>jobapi/v3/search</code> + spoofed <code>appid</code>/<code>systemid</code> headers, cookie warm-up</td><td><b>Dropped</b> for the SaaS</td></tr>
+        <tr><td>Unstop</td><td>Public opportunity search API (POST), spoofed headers, <code>eligible_year:[2027]</code> hardcoded</td><td><b>Dropped</b> for the SaaS</td></tr>
+        <tr><td>Wellfound</td><td>Embedded Algolia index with a hardcoded public app-id/search key; BeautifulSoup HTML fallback</td><td><b>Kept</b> — shared borrowed key; single failure point if rotated</td></tr>
+        <tr><td>Internshala, Cutshort</td><td>HTML scrape / schema.org <code>JobPosting</code> JSON-LD; "bangalore" in URL slug</td><td>Fragile; location hardcoded — <b>keep/drop still open</b></td></tr>
+        <tr><td>Y Combinator</td><td>Official <code>workatastartup.com/jobs.json</code></td><td>Legitimately public — keep</td></tr>
+        <tr><td>Hacker News "Who is Hiring?"</td><td>Official Algolia HN Search API + Firebase item API</td><td>Legitimately public — keep</td></tr>
+        <tr><td>SerpAPI</td><td>Paid Google Jobs proxy, needs <code>SERPAPI_API_KEY</code></td><td>Licensed; cost scales per query</td></tr>
+        <tr><td>OpenRouter</td><td>OpenAI-compatible chat completions, one shared free-tier key</td><td>10&ndash;20 RPM ceiling shared across everything</td></tr>
+        <tr><td>Gmail</td><td>SMTP + app password, one account</td><td>500&nbsp;msg/day; bulk sending risks suspension</td></tr>
+        <tr><td>GitHub</td><td>REST API via PyGithub + PAT (config push, workflow dispatch, run/log polling)</td><td>Becomes irrelevant once there's a real backend</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="reuse">
+  <h3>1.3 &nbsp;Core engine vs. per-user configuration</h3>
+  <p>The good news: the matching and scraping code is already mostly written as pure functions that take roles, locations and a parsed-résumé dict as arguments. The work is prising it away from <code>config.json</code>, the repo, and the shared process, not rewriting the logic.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Component</th><th></th><th>Disposition</th></tr></thead>
+      <tbody>
+        <tr><td class="t-mono">job_hunter/scrapers/*</td><td><span class="chip core">core</span></td><td>Keep the logic. Remove hardcoded India / batch 2027 / "bangalore" slugs; make every filter an argument; add per-call rate-limit and egress hooks.</td></tr>
+        <tr><td class="t-mono">ai_engine.py</td><td><span class="chip core">core</span></td><td>Prompts, JSON extraction, batching, keyword fallback all reusable. Kill the module-global <code>_client</code> (it memoises the first API key it ever sees); pass credentials per call.</td></tr>
+        <tr><td class="t-mono">deduplicator.py</td><td><span class="chip core">core</span> <span class="chip config">storage</span></td><td>Dedup logic stays; SQLite file &rarr; a Postgres table scoped by <code>user_id</code>.</td></tr>
+        <tr><td class="t-mono">excel_builder.py</td><td><span class="chip core">core</span></td><td>Pure function. Write output to object storage, not a repo path.</td></tr>
+        <tr><td class="t-mono">emailer.py</td><td><span class="chip core">core</span> <span class="chip replace">service</span></td><td>Keep templating; swap Gmail-SMTP-as-you for a transactional provider (platform sender or user OAuth).</td></tr>
+        <tr><td class="t-mono">config_loader.py</td><td><span class="chip config">contract</span></td><td>The dataclasses become the engine's typed <em>input contract</em>. The "load from JSON in a repo" half is deleted; a DB-backed per-tenant loader replaces it.</td></tr>
+        <tr><td class="t-mono">main.py :: run()</td><td><span class="chip replace">refactor</span></td><td>Becomes <code>run_engine(EngineInput) -&gt; EngineResult</code>: no <code>sys.exit</code>, no repo commit, no global state, returns a structured result the worker persists.</td></tr>
+        <tr><td class="t-mono">streamlit_app/*</td><td><span class="chip replace">replace</span></td><td>Rebuild as Next.js + FastAPI. Keep the <em>page concepts</em> — Settings, Résumé Manager, History, Today's Matches, Test Run — as real product screens.</td></tr>
+        <tr><td class="t-mono">utils/github_sync.py</td><td><span class="chip replace">delete</span></td><td>Entirely replaced by DB + object storage + a real queue.</td></tr>
+        <tr><td class="t-mono">.github/workflows/daily_job_hunt.yml</td><td><span class="chip replace">delete</span></td><td>Replaced by a queue + worker pool + scheduler.</td></tr>
+        <tr><td class="t-mono">config.json, resumes/*.pdf</td><td><span class="chip config">per-user data</span></td><td>Become <code>job_profiles</code> / <code>resumes</code> rows + S3 objects. Résumé PII stops living in Git history.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="fragile">
+  <h3>1.4 &nbsp;Assumptions that break under concurrent users</h3>
+  <ol class="risks">
+    <li>
+      <div class="r-head">Repo-as-database <span class="sev high">rework</span></div>
+      <p class="r-body">Every write is a <code>git commit</code> + push. Concurrent users mean merge conflicts, serialized writes, unbounded history growth, and résumé PII permanently in history. There is no row, no transaction, no per-user isolation.</p>
+    </li>
+    <li>
+      <div class="r-head">GitHub Actions as the runtime <span class="sev high">rework</span></div>
+      <p class="r-body">2,000 minutes/month per account, one workflow file, a 45-minute job cap, and <code>workflow_dispatch</code> with no per-user isolation. It is not a job queue: no priority, no backpressure, no fair scheduling between tenants.</p>
+    </li>
+    <li>
+      <div class="r-head">One shared set of credentials <span class="sev high">rework</span></div>
+      <p class="r-body">One OpenRouter free key (global 10 RPM), one Gmail account (500/day + bulk-sender suspension risk), one SerpAPI quota, one egress IP. One aggressive user gets the shared IP blocked on Naukri/LinkedIn for <em>everyone</em>.</p>
+    </li>
+    <li>
+      <div class="r-head">Rate limiting via <code>time.sleep(6)</code> in the request path <span class="sev high">rework</span></div>
+      <p class="r-body">Fine for one nightly run. Across N users it serializes to roughly <code>N × (jobs/20) × 6s</code> of pure sleeping unless the limiter becomes a shared, per-key, non-blocking token bucket.</p>
+    </li>
+    <li>
+      <div class="r-head">Undocumented endpoints, spoofed headers, HTML selectors <span class="sev high">rework</span></div>
+      <p class="r-body">Private APIs change without notice; selectors rot; the hardcoded Wellfound Algolia key can be revoked. Doing this as a public product for many users is the single largest reliability <em>and</em> legal risk — see §3.</p>
+    </li>
+    <li>
+      <div class="r-head">Module-global LLM client <span class="sev med">fix</span></div>
+      <p class="r-body"><code>_client</code> in <code>ai_engine.py</code> caches the first key it sees. In a long-lived worker serving many tenants it would leak one tenant's key/config into the next request.</p>
+    </li>
+    <li>
+      <div class="r-head">No idempotency or safe retry <span class="sev med">design in</span></div>
+      <p class="r-body">A retried run re-scrapes, re-matches (re-spending LLM quota) and re-emails. <code>mark_jobs_seen</code> only fires after a successful email, so a crash just after sending produces duplicates next run.</p>
+    </li>
+    <li>
+      <div class="r-head">Global SQLite dedup file <span class="sev med">rework</span></div>
+      <p class="r-body">Single writer, <code>date('now')</code>, one file. Concurrent workers in separate containers cannot share it.</p>
+    </li>
+    <li>
+      <div class="r-head">Plaintext secrets in env vars <span class="sev med">rework</span></div>
+      <p class="r-body">No per-user isolation, no encryption at rest, no rotation. A multi-tenant product holding users' site credentials needs envelope encryption and a real secrets store.</p>
+    </li>
+    <li>
+      <div class="r-head">Résumé = a PDF on disk, parsed once <span class="sev med">rework</span></div>
+      <p class="r-body">Cached by file-hash in <code>config.json</code>. Needs object storage, a parse pipeline with status, versioning, and a real answer for image-only PDFs (they silently yield nothing today).</p>
+    </li>
+    <li>
+      <div class="r-head">Single IST cron; no per-user schedule <span class="sev med">design in</span></div>
+      <p class="r-body">Time zone and run time are baked into the workflow. Per-user schedules need an actual scheduler with locking.</p>
+    </li>
+    <li>
+      <div class="r-head"><code>config.json</code> read/write race <span class="sev med">resolved by DB</span></div>
+      <p class="r-body">The Streamlit app and the Actions run both write the same file; the code comments on the hazard. Two writers, no lock — gone once state is in Postgres.</p>
+    </li>
+  </ol>
+</section>
+
+<hr class="rule">
+
+<section id="architecture">
+  <h2><span class="sec-no">§2</span>Target architecture</h2>
+  <p class="section-sub">A conventional three-tier SaaS: a Next.js front end, a FastAPI back end that only ever reads, writes and <em>enqueues</em>, and a pool of stateless workers that run the unchanged engine with one tenant's configuration injected as data. Postgres for relational state, Redis for the queue and rate-limit buckets, object storage for binaries.</p>
+</section>
+
+<section id="overview">
+  <h3>2.1 &nbsp;System overview</h3>
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 980 470" role="img" aria-label="Target multi-tenant architecture: Next.js talks to FastAPI over JWT; FastAPI reads and writes Postgres, Redis and object storage and enqueues runs; a worker pool and scheduler consume the queue; each worker loads one tenant's rows, decrypts credentials, and runs the pure engine against job sources, the LLM provider and the email provider.">
+        <defs>
+          <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <g font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor">
+          <text x="95" y="20" text-anchor="middle" font-size="10" fill="var(--ink-faint)">CLIENT</text>
+          <text x="330" y="20" text-anchor="middle" font-size="10" fill="var(--ink-faint)">API</text>
+          <text x="560" y="20" text-anchor="middle" font-size="10" fill="var(--ink-faint)">STATE</text>
+          <text x="800" y="20" text-anchor="middle" font-size="10" fill="var(--ink-faint)">ASYNC + EXTERNAL</text>
+
+          <g>
+            <rect x="24" y="150" width="150" height="66" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="99" y="178" text-anchor="middle" font-weight="600">Next.js 14</text>
+            <text x="99" y="196" text-anchor="middle" font-size="10" fill="var(--ink-faint)">shadcn/ui</text>
+          </g>
+          <g>
+            <rect x="255" y="140" width="150" height="86" rx="7" fill="var(--accent-soft)" stroke="var(--accent)"/>
+            <text x="330" y="170" text-anchor="middle" font-weight="600" fill="var(--accent-ink)">FastAPI</text>
+            <text x="330" y="187" text-anchor="middle" font-size="10" fill="var(--accent-ink)">/api/v1</text>
+            <text x="330" y="205" text-anchor="middle" font-size="10" fill="var(--accent-ink)">read · write · enqueue</text>
+          </g>
+
+          <g>
+            <rect x="490" y="96" width="140" height="46" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="560" y="123" text-anchor="middle">PostgreSQL</text>
+          </g>
+          <g>
+            <rect x="490" y="160" width="140" height="46" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="560" y="187" text-anchor="middle">Redis</text>
+          </g>
+          <g>
+            <rect x="490" y="224" width="140" height="46" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="560" y="247" text-anchor="middle" font-size="11">Object storage</text>
+          </g>
+
+          <g>
+            <rect x="712" y="150" width="150" height="46" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="787" y="177" text-anchor="middle">Scheduler</text>
+          </g>
+          <g>
+            <rect x="712" y="212" width="244" height="150" rx="8" fill="none" stroke="var(--rule-strong)" stroke-dasharray="5 3"/>
+            <text x="834" y="232" text-anchor="middle" font-size="10" fill="var(--ink-faint)">worker pool — same code, every tenant</text>
+            <rect x="730" y="244" width="130" height="50" rx="6" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="795" y="266" text-anchor="middle" font-size="11">worker (arq)</text>
+            <text x="795" y="282" text-anchor="middle" font-size="9" fill="var(--ink-faint)">tenant rows &rarr; input</text>
+            <rect x="730" y="304" width="210" height="44" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+            <text x="835" y="326" text-anchor="middle" font-size="11" fill="var(--accent-ink)">packages/engine (pure)</text>
+            <text x="835" y="340" text-anchor="middle" font-size="9" fill="var(--accent-ink)">scrape · match · report</text>
+          </g>
+          <g>
+            <rect x="712" y="384" width="244" height="60" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="834" y="407" text-anchor="middle" font-size="11">job sources · OpenRouter · email API</text>
+            <text x="834" y="424" text-anchor="middle" font-size="9" fill="var(--ink-faint)">via per-site + per-user token bucket</text>
+          </g>
+          <g>
+            <rect x="255" y="300" width="150" height="46" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="330" y="327" text-anchor="middle" font-size="11">Secret manager</text>
+          </g>
+
+          <g stroke="currentColor" stroke-width="1.5" fill="none">
+            <path d="M174 176 L250 176" marker-end="url(#ah2)"/>
+            <path d="M405 168 L486 120" marker-end="url(#ah2)"/>
+            <path d="M405 180 L486 182" marker-end="url(#ah2)"/>
+            <path d="M405 200 L486 240" marker-end="url(#ah2)"/>
+            <path d="M405 214 C520 300 560 210 632 183" marker-end="url(#ah2)"/>
+            <path d="M630 176 L708 174" marker-end="url(#ah2)"/>
+            <path d="M787 196 L787 242" marker-end="url(#ah2)"/>
+            <path d="M795 294 L795 302" marker-end="url(#ah2)"/>
+            <path d="M835 348 L835 382" marker-end="url(#ah2)"/>
+            <path d="M730 268 C660 250 650 200 632 150 L632 150" marker-end="url(#ah2)"/>
+            <path d="M330 300 L330 226" marker-end="url(#ah2)"/>
+            <path d="M730 320 C560 300 480 320 405 322" marker-end="url(#ah2)"/>
+          </g>
+          <g font-size="9.5" fill="var(--ink-faint)">
+            <text x="212" y="168" text-anchor="middle">JWT</text>
+            <text x="452" y="150" text-anchor="middle">R/W</text>
+            <text x="470" y="214" text-anchor="end">enqueue 202</text>
+            <text x="668" y="166" text-anchor="middle">pull</text>
+            <text x="700" y="292" text-anchor="middle">load rows</text>
+            <text x="565" y="316" text-anchor="middle">decrypt creds</text>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>The API never runs automation.</b> It writes a <code>runs</code> row, enqueues a message, and returns <code>202</code>. A stateless worker pulls the job, builds an <code>EngineInput</code> from that tenant's rows, and calls the same engine binary every other tenant uses — all tenant variation is input data.</figcaption>
+  </figure>
+</section>
+
+<section id="datamodel">
+  <h3>2.2 &nbsp;Multi-tenant data model</h3>
+  <p>Row-level multi-tenancy in one Postgres database: every tenant-owned table carries <code>user_id</code>, every query is filtered by it in a repository layer, and Postgres row-level security is enabled as defense-in-depth. <code>jsonb</code> holds the shapes that were loose JSON before (parsed résumé, run stats).</p>
+  <div class="entities">
+    <div class="entity">
+      <h5>users</h5>
+      <ul>
+        <li><b>id</b> uuid pk</li>
+        <li><b>email</b> citext unique</li>
+        <li>password_hash <span style="color:var(--ink-faint)">argon2id</span></li>
+        <li>full_name, status</li>
+        <li>role · plan <span style="color:var(--ink-faint)">RBAC scaffold</span></li>
+        <li>created_at, updated_at</li>
+      </ul>
+    </div>
+    <div class="entity">
+      <h5>refresh_tokens</h5>
+      <ul>
+        <li><b>id</b> uuid · user_id fk</li>
+        <li>token_hash</li>
+        <li>expires_at, revoked_at</li>
+        <li>rotated_from <span style="color:var(--ink-faint)">reuse detection</span></li>
+        <li>user_agent, ip</li>
+      </ul>
+    </div>
+    <div class="entity">
+      <h5>job_profiles</h5>
+      <ul>
+        <li><b>id</b> · user_id fk</li>
+        <li>name, is_active</li>
+        <li>target_roles, locations text[]</li>
+        <li>job_types, min_match_percent</li>
+        <li>must_have[], nice_to_have[]</li>
+        <li>exclude_companies[], watchlist[]</li>
+        <li>schedule_cron, timezone</li>
+      </ul>
+    </div>
+    <div class="entity">
+      <h5>resumes</h5>
+      <ul>
+        <li><b>id</b> · user_id · job_profile_id?</li>
+        <li>storage_key <span style="color:var(--ink-faint)">S3</span></li>
+        <li>content_sha256, size, mime</li>
+        <li>status <span style="color:var(--ink-faint)">uploaded→parsed→failed</span></li>
+      </ul>
+    </div>
+    <div class="entity">
+      <h5>resume_parses</h5>
+      <ul>
+        <li><b>id</b> · resume_id fk</li>
+        <li>model, parsed_json jsonb</li>
+        <li>skills text[], tokens_used</li>
+        <li>created_at <span style="color:var(--ink-faint)">versioned</span></li>
+      </ul>
+    </div>
+    <div class="entity">
+      <h5>site_credentials <span class="enc">🔒</span></h5>
+      <ul>
+        <li><b>id</b> · user_id · site</li>
+        <li>auth_type <span style="color:var(--ink-faint)">cookie·oauth·key</span></li>
+        <li class="enc">secret_ciphertext bytea</li>
+        <li class="enc">nonce, key_version</li>
+        <li>status, last_verified_at</li>
+      </ul>
+    </div>
+    <div class="entity">
+      <h5>runs</h5>
+      <ul>
+        <li><b>id</b> uuid · user_id · job_profile_id</li>
+        <li>trigger, status</li>
+        <li>idempotency_key unique</li>
+        <li>queued/started/finished_at</li>
+        <li>attempt, max_attempts</li>
+        <li>stats jsonb, error_summary</li>
+        <li>notified_at <span style="color:var(--ink-faint)">email guard</span></li>
+      </ul>
+    </div>
+    <div class="entity">
+      <h5>run_steps</h5>
+      <ul>
+        <li><b>id</b> · run_id fk</li>
+        <li>name <span style="color:var(--ink-faint)">scrape:linkedin…</span></li>
+        <li>status, started/finished_at</li>
+        <li>detail jsonb <span style="color:var(--ink-faint)">live UI</span></li>
+      </ul>
+    </div>
+    <div class="entity">
+      <h5>job_matches</h5>
+      <ul>
+        <li><b>id</b> · user_id · run_id · profile_id</li>
+        <li>source, company, title, url</li>
+        <li>match_percentage, urgency</li>
+        <li>matched_skills[], missing_skills[]</li>
+        <li>external_hash <span style="color:var(--ink-faint)">unique(user_id, hash)</span></li>
+        <li>status <span style="color:var(--ink-faint)">new·saved·applied·dismissed</span></li>
+      </ul>
+    </div>
+    <div class="entity">
+      <h5>notifications</h5>
+      <ul>
+        <li><b>id</b> · user_id · run_id</li>
+        <li>channel, to_addr, subject</li>
+        <li>status, provider_message_id</li>
+      </ul>
+    </div>
+    <div class="entity">
+      <h5>audit_log</h5>
+      <ul>
+        <li><b>id</b> · actor_user_id</li>
+        <li>action, target_type, target_id</li>
+        <li>ip, created_at</li>
+      </ul>
+    </div>
+    <div class="entity">
+      <h5>api_keys <span style="color:var(--ink-faint)">(later)</span></h5>
+      <ul>
+        <li><b>id</b> · user_id</li>
+        <li>key_prefix, key_hash, scopes</li>
+        <li>last_used_at, revoked_at</li>
+      </ul>
+    </div>
+  </div>
+  <p><strong>Object storage</strong> holds the binaries keyed by tenant: <code>resumes/{user_id}/{resume_id}.pdf</code>, <code>reports/{user_id}/{run_id}.xlsx</code>, and later <code>cover_letters/{user_id}/…</code>. Presigned upload/download, lifecycle expiry on reports, versioning on résumés. <strong>Redis</strong> holds the queue, per-<code>(site,user)</code> and global token buckets, the résumé-parse cache keyed by sha, dedup lookups, and the per-profile "one active scheduled run" lock.</p>
+</section>
+
+<section id="execution">
+  <h3>2.3 &nbsp;Execution model</h3>
+  <p>Automation never runs inside an API request. <code>POST /runs</code> validates, inserts a <code>runs</code> row as <code>queued</code> with an idempotency key, enqueues one message, and returns <code>202 Accepted</code> with the run id. Everything else happens in a worker.</p>
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 980 300" role="img" aria-label="Run lifecycle: a run row is created as queued, moves to running, and passes through scrape, dedupe, match, persist and notify steps before reaching succeeded, partial, failed or cancelled. A transient failure with attempts remaining loops back to queued with backoff. A re-delivered message with the same idempotency key returns the existing terminal run.">
+        <defs>
+          <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <g font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor">
+          <g>
+            <rect x="20" y="120" width="104" height="44" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="72" y="147" text-anchor="middle">queued</text>
+          </g>
+          <g>
+            <rect x="196" y="70" width="470" height="150" rx="9" fill="none" stroke="var(--accent)" stroke-dasharray="5 3"/>
+            <text x="214" y="90" font-size="10" fill="var(--accent-ink)">running — each step an idempotent upsert</text>
+            <g fill="var(--accent-soft)" stroke="var(--accent)">
+              <rect x="214" y="110" width="80" height="40" rx="6"/>
+              <rect x="306" y="110" width="80" height="40" rx="6"/>
+              <rect x="398" y="110" width="80" height="40" rx="6"/>
+              <rect x="490" y="110" width="70" height="40" rx="6"/>
+              <rect x="572" y="110" width="80" height="40" rx="6"/>
+            </g>
+            <g fill="var(--accent-ink)" font-size="10.5" text-anchor="middle">
+              <text x="254" y="134">scrape</text>
+              <text x="346" y="134">dedupe</text>
+              <text x="438" y="134">match</text>
+              <text x="525" y="134">persist</text>
+              <text x="612" y="134">notify</text>
+            </g>
+            <text x="612" y="176" text-anchor="middle" font-size="9" fill="var(--ink-faint)">guarded by</text>
+            <text x="612" y="188" text-anchor="middle" font-size="9" fill="var(--ink-faint)">notified_at</text>
+          </g>
+          <g>
+            <rect x="726" y="46" width="150" height="40" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="801" y="71" text-anchor="middle" font-size="11">succeeded</text>
+          </g>
+          <g>
+            <rect x="726" y="98" width="150" height="40" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="801" y="123" text-anchor="middle" font-size="11">partial</text>
+          </g>
+          <g>
+            <rect x="726" y="150" width="150" height="40" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="801" y="175" text-anchor="middle" font-size="11">failed</text>
+          </g>
+          <g>
+            <rect x="726" y="202" width="150" height="40" rx="7" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="801" y="227" text-anchor="middle" font-size="11">cancelled</text>
+          </g>
+
+          <g stroke="currentColor" stroke-width="1.5" fill="none">
+            <path d="M124 142 L192 142" marker-end="url(#ah3)"/>
+            <path d="M666 120 L722 76" marker-end="url(#ah3)"/>
+            <path d="M666 135 L722 118" marker-end="url(#ah3)"/>
+            <path d="M666 150 L722 168" marker-end="url(#ah3)"/>
+            <path d="M666 165 C690 210 700 220 722 222" marker-end="url(#ah3)"/>
+            <path d="M726 176 C560 262 300 262 72 200 L72 166" marker-end="url(#ah3)" stroke-dasharray="5 3"/>
+          </g>
+          <g font-size="9.5" fill="var(--ink-faint)">
+            <text x="158" y="134" text-anchor="middle">dequeue</text>
+            <text x="400" y="255" text-anchor="middle">transient error · attempt &lt; max &rarr; re-enqueue with backoff + jitter</text>
+          </g>
+          <g>
+            <rect x="20" y="40" width="150" height="52" rx="7" fill="none" stroke="var(--rule-strong)" stroke-dasharray="3 3"/>
+            <text x="95" y="60" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">re-delivery, same</text>
+            <text x="95" y="73" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">idempotency_key</text>
+            <text x="95" y="86" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">&rarr; return terminal run</text>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>The run row exists before any work starts.</b> Each step is an <code>ON CONFLICT</code> upsert and <code>notify</code> checks <code>runs.notified_at</code>, so a retried run resumes without duplicate emails or re-spent LLM quota. A source that exhausts its retries marks itself failed and the run finishes <code>partial</code> — mirroring today's "one dead source doesn't kill the run."</figcaption>
+  </figure>
+  <h4>Queue &amp; workers</h4>
+  <ul>
+    <li><strong>Broker: Arq</strong> (async, Redis-backed, small). It fits FastAPI's async world and this IO-bound workload better than Celery; Celery is the fallback if you want the bigger ecosystem.</li>
+    <li><strong>Separate queues / pools:</strong> <code>scrape</code> (high concurrency, IO-bound), <code>match</code> (low concurrency, LLM-quota-bound), <code>default</code>. They scale independently.</li>
+    <li><strong>Scheduler:</strong> a one-minute beat process that finds <code>job_profiles</code> due by <code>schedule_cron</code> + <code>timezone</code> and enqueues runs, taking a Redis lock per profile so replicas don't double-fire.</li>
+  </ul>
+  <div class="note">
+    <p class="note-h">Why not Temporal</p>
+    <p>The "multi-step apply flow" here is a single fan-out / fan-in batch — scrape N sources, score, persist, email — that finishes in minutes with no human-in-the-loop waits. Arq plus idempotent steps covers it. Revisit Temporal only if real auto-apply lands, with multi-day waits, approval gates, and per-application sagas.</p>
+  </div>
+</section>
+
+<section id="auth">
+  <h3>2.4 &nbsp;Auth &amp; RBAC</h3>
+  <ul>
+    <li><strong>Passwords:</strong> argon2id. <strong>Access token:</strong> JWT, ~15&nbsp;min, <code>RS256</code> (front end and other services verify without the signing secret); claims <code>sub</code>, <code>role</code>, <code>plan</code>, <code>jti</code>.</li>
+    <li><strong>Refresh token:</strong> opaque random, stored hashed in <code>refresh_tokens</code>, ~30&nbsp;days, <em>rotating</em> — on reuse of a rotated token the whole family is revoked. Delivered as an httpOnly, <code>Secure</code>, <code>SameSite=Lax</code> cookie; the access token stays in memory only.</li>
+    <li><strong>Endpoints:</strong> <code>/auth/signup</code> (+ email verification), <code>/auth/login</code>, <code>/auth/refresh</code>, <code>/auth/logout</code>, <code>/auth/verify-email</code>, <code>/auth/forgot</code>, <code>/auth/reset</code>.</li>
+    <li><strong>RBAC scaffold:</strong> <code>role</code> = <code>user | admin</code>, <code>plan</code> = <code>free | pro</code>. Dependencies <code>require_role()</code> / <code>require_plan()</code> gate routes; admin endpoints are stubbed now (list/suspend users, view any run). Tenant isolation is enforced in the data layer regardless of role; admins reach tenant data only through explicit, audit-logged impersonation endpoints.</li>
+  </ul>
+</section>
+
+<section id="api">
+  <h3>2.5 &nbsp;API layer — FastAPI, <code>/api/v1</code></h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Group</th><th>Endpoints</th></tr></thead>
+      <tbody>
+        <tr><td>auth</td><td class="t-mono">POST /auth/{signup,login,refresh,logout,verify-email,forgot,reset}</td></tr>
+        <tr><td>account</td><td class="t-mono">GET·PATCH /me &nbsp;·&nbsp; DELETE /me</td></tr>
+        <tr><td>job profiles</td><td class="t-mono">GET·POST /job-profiles &nbsp;·&nbsp; GET·PATCH·DELETE /job-profiles/{id} &nbsp;·&nbsp; POST /job-profiles/{id}:activate</td></tr>
+        <tr><td>résumés</td><td class="t-mono">POST /resumes (multipart → parse task) &nbsp;·&nbsp; GET /resumes/{id} &nbsp;·&nbsp; DELETE /resumes/{id}</td></tr>
+        <tr><td>site credentials</td><td class="t-mono">GET /site-credentials (metadata only) &nbsp;·&nbsp; PUT /site-credentials/{site} &nbsp;·&nbsp; POST /site-credentials/{site}:verify &nbsp;·&nbsp; DELETE …</td></tr>
+        <tr><td>runs</td><td class="t-mono">POST /runs → 202 &nbsp;·&nbsp; GET /runs?status=&amp;profile= &nbsp;·&nbsp; GET /runs/{id} &nbsp;·&nbsp; GET /runs/{id}/events (SSE) &nbsp;·&nbsp; POST /runs/{id}:cancel</td></tr>
+        <tr><td>matches</td><td class="t-mono">GET /matches?run=&amp;profile=&amp;min_match=&amp;status=&amp;q=&amp;page= &nbsp;·&nbsp; PATCH /matches/{id} &nbsp;·&nbsp; GET /matches/export.xlsx</td></tr>
+        <tr><td>dashboard</td><td class="t-mono">GET /dashboard/summary — counts, success metrics, sparkline series</td></tr>
+        <tr><td>admin</td><td class="t-mono">GET /admin/users &nbsp;·&nbsp; POST /admin/users/{id}:suspend &nbsp;·&nbsp; GET /admin/runs &nbsp;<span style="color:var(--ink-faint)">(role=admin)</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Cross-cutting: request-id middleware, structured JSON logging, Pydantic v2 schemas, OpenAPI at <code>/docs</code>, per-user API rate limiting (Redis), and idempotency-key handling on <code>POST /runs</code>. The SSE <code>/runs/{id}/events</code> stream replaces today's GitHub-Actions-log polling for live progress.</p>
+</section>
+
+<section id="frontend">
+  <h3>2.6 &nbsp;Frontend — Next.js 14 (App Router) + shadcn/ui</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Route</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td class="t-mono">(auth)/login · signup · verify · reset</td><td>Email + password, verification, password reset.</td></tr>
+        <tr><td class="t-mono">(app)/dashboard</td><td>Run-status cards, applications-sent metric, match-rate sparkline, latest matches, "Run now".</td></tr>
+        <tr><td class="t-mono">(app)/profiles · profiles/[id]</td><td><strong>Multi-step builder</strong>: (1) target roles &amp; seniority, (2) locations / job types / salary, (3) must-have · nice-to-have · exclude filters, (4) résumé upload + parsed-skill review, (5) schedule &amp; review. <code>react-hook-form</code> + <code>zod</code>, autosaved draft.</td></tr>
+        <tr><td class="t-mono">(app)/runs · runs/[id]</td><td>Run history table; per-run live step timeline over SSE — the "Test Run" page without GitHub.</td></tr>
+        <tr><td class="t-mono">(app)/matches</td><td>Filterable table (the "Today's Matches" view); row actions save / apply / dismiss; export.</td></tr>
+        <tr><td class="t-mono">(app)/settings · settings/credentials · settings/billing</td><td>Account details, per-site credential cards with verify + status, billing stub, delete account.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Server components for reads where possible; TanStack Query for client mutations and run polling; a <code>/auth/refresh</code> call on any 401; middleware guards <code>(app)/*</code>.</p>
+</section>
+
+<section id="scale">
+  <h3>2.7 &nbsp;Scalability concerns, each answered</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Concern</th><th>Response</th></tr></thead>
+      <tbody>
+        <tr><td>Horizontal worker scaling</td><td>Stateless <code>arq</code> workers scaled by replica count; autoscale on Redis queue depth (KEDA in k8s, or a metrics policy). <code>scrape</code> and <code>match</code> are separate pools with separate limits.</td></tr>
+        <tr><td>Per-user rate limiting vs. job sites</td><td>Redis token bucket keyed <code>ratelimit:{site}:{user_id}</code> <em>and</em> a global <code>ratelimit:{site}</code> ceiling. A worker acquires a token before each request or reschedules. One user cannot exhaust a site; the global cap protects the shared egress IP. Per-site politeness config: RPM, burst, min-delay, allowed hours.</td></tr>
+        <tr><td>Secrets management</td><td>App secrets from environment / a secret manager, never the repo. User site-credentials use envelope encryption: a per-row data key wrapped by a KMS master key, rotatable via <code>key_version</code>; plaintext exists only in worker memory during a run, is never logged, and is never returned by the API.</td></tr>
+        <tr><td>Idempotency &amp; retry for flaky sites</td><td>Idempotency key on run creation; per-source results upserted <code>ON CONFLICT</code>; <code>notify</code> gated by <code>runs.notified_at</code>; transient errors retried with backoff + jitter; a source that fails all retries yields a <code>partial</code> run rather than a failed one.</td></tr>
+        <tr><td>Engine ↔ config boundary</td><td><code>packages/engine</code> is a pure library: <code>run_engine(EngineInput) -&gt; EngineResult</code>, where <code>EngineInput = {profile, resume_parses, enabled_sources, site_credentials, limits}</code>. No DB, no auth, no scheduling, no network config. The worker builds the input from tenant rows and writes the result back. Same engine for every tenant.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="storage">
+  <h3>2.8 &nbsp;Data storage</h3>
+  <ul>
+    <li><strong>PostgreSQL</strong> — all relational state; <code>jsonb</code> for parsed-résumé and run-stats shapes; <code>text[]</code> for the many list fields <code>config.json</code> carried.</li>
+    <li><strong>Redis</strong> — queue broker + result backend, rate-limit buckets, parse/dedup caches, per-profile run locks, refresh-token denylist.</li>
+    <li><strong>Object storage (S3 / MinIO)</strong> — résumé PDFs, generated Excel reports, and future generated cover letters. Presigned URLs, lifecycle expiry on reports, versioning on résumés. This is where "object storage is needed" — binaries do not belong in Postgres and definitely not in Git.</li>
+  </ul>
+</section>
+
+<section id="deploy">
+  <h3>2.9 &nbsp;Deployment</h3>
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 980 300" role="img" aria-label="Deployment: locally, docker-compose runs web, api, worker, scheduler, postgres, redis and minio on one host. In production, a load balancer fronts several stateless api replicas; a worker deployment autoscales on queue depth split into scrape and match pools; a single leader-locked scheduler runs; Postgres, Redis and object storage are managed services; scrape egress goes through a NAT or proxy pool; secrets come from a secret manager.">
+        <defs>
+          <marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor">
+          <text x="20" y="28" font-size="10" fill="var(--ink-faint)">LOCAL — docker-compose, one host</text>
+          <g fill="var(--surface-2)" stroke="var(--rule-strong)">
+            <rect x="20" y="44" width="120" height="34" rx="6"/>
+            <rect x="152" y="44" width="120" height="34" rx="6"/>
+            <rect x="284" y="44" width="120" height="34" rx="6"/>
+            <rect x="416" y="44" width="80" height="34" rx="6"/>
+          </g>
+          <g text-anchor="middle" font-size="10.5">
+            <text x="80" y="65">web</text>
+            <text x="212" y="65">api</text>
+            <text x="344" y="65">worker</text>
+            <text x="456" y="65">sched</text>
+          </g>
+          <g fill="var(--surface-2)" stroke="var(--rule-strong)">
+            <rect x="20" y="86" width="152" height="30" rx="6"/>
+            <rect x="184" y="86" width="140" height="30" rx="6"/>
+            <rect x="336" y="86" width="120" height="30" rx="6"/>
+          </g>
+          <g text-anchor="middle" font-size="10">
+            <text x="96" y="105">postgres</text>
+            <text x="254" y="105">redis</text>
+            <text x="396" y="105">minio</text>
+          </g>
+
+          <line x1="530" y1="24" x2="530" y2="276" stroke="var(--rule)" stroke-width="1"/>
+
+          <text x="558" y="28" font-size="10" fill="var(--ink-faint)">PRODUCTION — architected, not built yet</text>
+          <g>
+            <rect x="558" y="44" width="96" height="34" rx="6" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="606" y="65" text-anchor="middle" font-size="10">LB</text>
+          </g>
+          <g>
+            <rect x="676" y="40" width="120" height="42" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+            <text x="736" y="58" text-anchor="middle" font-size="10" fill="var(--accent-ink)">api ×N</text>
+            <text x="736" y="72" text-anchor="middle" font-size="8.5" fill="var(--accent-ink)">stateless</text>
+          </g>
+          <g>
+            <rect x="676" y="96" width="230" height="52" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+            <text x="791" y="114" text-anchor="middle" font-size="10" fill="var(--accent-ink)">worker deployment — autoscale on queue depth</text>
+            <text x="732" y="134" text-anchor="middle" font-size="9" fill="var(--accent-ink)">scrape pool</text>
+            <text x="850" y="134" text-anchor="middle" font-size="9" fill="var(--accent-ink)">match pool</text>
+          </g>
+          <g>
+            <rect x="676" y="160" width="120" height="32" rx="6" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="736" y="180" text-anchor="middle" font-size="9.5">scheduler ×1</text>
+          </g>
+          <g>
+            <rect x="816" y="160" width="140" height="32" rx="6" fill="var(--surface-2)" stroke="var(--rule-strong)"/>
+            <text x="886" y="180" text-anchor="middle" font-size="9">secret manager</text>
+          </g>
+          <g fill="var(--surface-2)" stroke="var(--rule-strong)">
+            <rect x="558" y="208" width="128" height="30" rx="6"/>
+            <rect x="698" y="208" width="112" height="30" rx="6"/>
+            <rect x="822" y="208" width="134" height="30" rx="6"/>
+          </g>
+          <g text-anchor="middle" font-size="9">
+            <text x="622" y="227">managed Postgres</text>
+            <text x="754" y="227">managed Redis</text>
+            <text x="889" y="227">object storage</text>
+          </g>
+          <g>
+            <rect x="676" y="252" width="230" height="30" rx="6" fill="none" stroke="var(--rule-strong)" stroke-dasharray="4 3"/>
+            <text x="791" y="271" text-anchor="middle" font-size="9" fill="var(--ink-faint)">NAT / proxy pool — scrape egress</text>
+          </g>
+          <g stroke="currentColor" stroke-width="1.3" fill="none">
+            <path d="M654 61 L672 61" marker-end="url(#ah4)"/>
+            <path d="M736 82 L736 94" marker-end="url(#ah4)"/>
+            <path d="M791 148 L791 158" marker-end="url(#ah4)"/>
+            <path d="M791 192 L791 250" marker-end="url(#ah4)"/>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>Same container images on both sides.</b> Production splits the worker into autoscaled <code>scrape</code> / <code>match</code> pools, runs one leader-locked scheduler, moves state to managed Postgres / Redis / object storage, and routes scrape egress through a NAT or proxy pool. Migrations run as a pre-deploy job; traces, queue-depth and per-source success metrics, and Sentry provide observability.</figcaption>
+  </figure>
+  <p><strong>Local dev:</strong> one <code>docker-compose.yml</code> with <code>postgres</code>, <code>redis</code>, <code>minio</code>, <code>api</code> (uvicorn --reload), <code>worker</code> (arq), <code>scheduler</code>, <code>web</code> (next dev). Ships with <code>.env.example</code>, Alembic migrations on <code>api</code> start, and <code>make seed</code> for a demo user + profile + sample matches so the dashboard renders on first boot.</p>
+</section>
+
+<hr class="rule">
+
+<section id="tos">
+  <h2><span class="sec-no">§3</span>Terms-of-service &amp; legal flags</h2>
+  <p class="section-sub">The pattern across all of these: doing something for yourself is lower-risk than offering it to the public as a service, and covert is riskier than consensual. Most are now resolved (see the locked-decisions box up top); the rest are marked <span class="decided">open</span>.</p>
+  <ol class="risks">
+    <li>
+      <div class="r-head">LinkedIn / Indeed / Glassdoor via <code>python-jobspy</code> <span class="decided">decided · kept</span></div>
+      <p class="r-body">All three prohibit scraping and this is the highest ToS exposure in the set. <b>Decision: keep it running now</b> (it works today), but Phase 4 default is <b>bring-your-own</b> — the run only touches the big-3 for a user who has opted in via a consent screen and ideally supplied their own session, never covertly from a shared pool. Vetoable at Phase 4.</p>
+    </li>
+    <li>
+      <div class="r-head">Private APIs &amp; HTML scraping — Naukri, Unstop, Wellfound, Cutshort, Internshala <span class="decided">mostly decided</span></div>
+      <p class="r-body"><b>Naukri and Unstop: dropped.</b> <b>Wellfound: kept</b> on its borrowed public Algolia key — noted as a shared single point of failure if the key is rotated. <b>Internshala &amp; Cutshort: still open</b> — same category as Naukri/Unstop, drop for consistency unless the student audience needs Internshala. YC <code>jobs.json</code> and the HN Algolia API are genuinely public — kept.</p>
+    </li>
+    <li>
+      <div class="r-head">Email sender <span class="decided">decided</span></div>
+      <p class="r-body"><b>Transactional provider as the platform sender</b> — default <b>Resend</b>, behind a sender interface so SES / Postmark is a config swap. SPF/DKIM/DMARC on a verified domain, per-user unsubscribe. No Gmail, no per-user OAuth mailbox for v1.</p>
+    </li>
+    <li>
+      <div class="r-head">Storing users' job-site passwords or session cookies <span class="sev high">decide</span></div>
+      <p class="r-body">Even encrypted, holding LinkedIn/Naukri credentials and acting as the user can violate those sites' terms and carries real security and liability weight. Prefer: no stored third-party passwords; OAuth where offered; user-pasted short-lived tokens they can revoke; explicit per-site consent screens; and a clear framing that the platform is a tool the user operates, not a covert bot farm.</p>
+    </li>
+    <li>
+      <div class="r-head">Proxy / rotating-IP scraping to dodge blocks <span class="sev med">decide</span></div>
+      <p class="r-body">This crosses from "automating my own browsing" into "evading access controls." Decide explicitly and document it. The defensible posture: respect <code>robots.txt</code> and published rate limits, identify the bot honestly, prefer official APIs, and require user consent + user credentials for anything gated.</p>
+    </li>
+    <li>
+      <div class="r-head">Résumé PII in public Git history <span class="sev med">migrate</span></div>
+      <p class="r-body">A real résumé with CGPA and project detail is committed to the current public repo. In the SaaS, PII lives only in Postgres / object storage with encryption, access control, deletion-on-request (GDPR / India DPDP), and an actual privacy policy.</p>
+    </li>
+    <li>
+      <div class="r-head">Licensing <span class="sev med">choose</span></div>
+      <p class="r-body">Since it's a hosted service, AGPL-3.0 keeps hosted forks open; MIT maximises adoption. Draw a clean line between the open engine and any hosted-only pieces (billing, admin).</p>
+    </li>
+  </ol>
+</section>
+
+<hr class="rule">
+
+<section id="plan">
+  <h2><span class="sec-no">§4</span>Build plan</h2>
+  <p class="section-sub">Seven phases. Each merges to <code>main</code> only when its verification list is green, and from Phase 3 on <code>main</code> stays runnable with <code>make up</code>. Stack: <b>uv workspace</b> for the Python side (<code>packages/engine</code>, <code>backend</code>, <code>worker</code>), a standalone <b>pnpm</b> Next.js app for <code>frontend</code>, Python 3.12, Postgres 16, Redis 7, MinIO.</p>
+
+  <pre class="tree">recruit-me/
+├── pyproject.toml            <span class="c"># [tool.uv.workspace] members = ["backend","worker","packages/*"]</span>
+├── docker-compose.yml   ·   .env.example   ·   Makefile   ·   LICENSE (AGPL-3.0)
+├── packages/engine/         <span class="c"># pure library — no DB, no auth, no network config</span>
+├── backend/                 <span class="c"># FastAPI — reads, writes, ENQUEUES only</span>
+├── worker/                  <span class="c"># arq worker + 60s scheduler</span>
+├── frontend/                <span class="c"># Next.js 14 App Router + shadcn/ui</span>
+└── infra/  ·  scripts/  ·  docs/</pre>
+
+  <div class="note">
+    <p class="note-h">Sources — final call for the build</p>
+    <p><b>Registered by default:</b> <code>jobspy</code> (LinkedIn/Indeed/Glassdoor — gated behind a per-profile <code>big3_optin</code> flag, off by default, see 4.4/4.6), <code>wellfound</code>, <code>yc</code>, <code>hackernews</code>. <b>Optional:</b> <code>serpapi</code> (user supplies key). <b>Dropped:</b> Naukri, Unstop — <b>and Internshala + Cutshort</b> for consistency (same private-scrape category). Internshala is a single-file re-add later behind the same opt-in pattern if the student audience wants it.</p>
+  </div>
+
+  <!-- ============ PHASE 1 ============ -->
+  <div class="phase-head" id="p1"><span class="pnum">4.1</span><h3>Repo restructuring</h3></div>
+  <p class="phase-goal">Monorepo skeleton. Existing <code>job_hunter/*</code> moves into <code>packages/engine</code> essentially unchanged and its tests stay green. No behaviour change; introduces the typed engine contract as scaffolding only.</p>
+
+  <p class="label-mono">Files</p>
+  <pre class="tree">packages/engine/
+├── pyproject.toml                       <span class="c"># name = "recruit-engine"</span>
+├── src/recruit_engine/
+│   ├── types.py         <span class="c"># EngineInput, EngineResult, ProfileSpec, ResumeParse,</span>
+│   │                    <span class="c">#   SourceCredential, JobPosting, MatchedJob, EngineLimits</span>
+│   ├── ports.py         <span class="c"># Protocols: SeenStore, RateLimiter, LLMClient, Clock</span>
+│   ├── engine.py        <span class="c"># run_engine() — stub in P1, full in P4</span>
+│   ├── ai.py            <span class="c"># ← job_hunter/ai_engine.py  (kill the module-global _client)</span>
+│   ├── dedupe.py        <span class="c"># ← deduplicator.py  (logic only; storage injected)</span>
+│   ├── report.py        <span class="c"># ← excel_builder.py  (returns bytes)</span>
+│   ├── email_templates.py               <span class="c"># ← emailer.py  (HTML build only, no SMTP)</span>
+│   └── scrapers/
+│       ├── __init__.py                  <span class="c"># SCRAPERS registry</span>
+│       ├── base.py      <span class="c"># Scraper protocol</span>
+│       ├── jobspy_scraper.py  ·  wellfound_scraper.py
+│       ├── yc_scraper.py      ·  hn_scraper.py
+│       └── serpapi_scraper.py           <span class="c"># present, not in default registry</span>
+└── tests/                               <span class="c"># ← moved from /tests, imports rewritten</span>
+backend/ worker/ frontend/              <span class="c"># stub packages + pyproject / create-next-app</span>
+docker-compose.yml                      <span class="c"># postgres + redis + minio only</span>
+.github/workflows/ci.yml                <span class="c"># runs engine tests on push</span>
+<span class="c">DELETED: naukri_scraper.py, unstop_scraper.py, internshala_scraper.py</span></pre>
+
+  <p class="label-mono">Key signatures — <code>packages/engine/src/recruit_engine/types.py</code>, <code>ports.py</code></p>
+  <pre class="sig">@dataclass(frozen=True)
+class ProfileSpec:
+    profile_id: str
+    target_roles: list[str];  locations: list[str];  job_types: list[str]
+    min_match_percent: int
+    must_have_skills: list[str];  nice_to_have_skills: list[str]
+    exclude_companies: list[str];  watchlist_companies: list[str]
+    big3_optin: bool = False              <span class="c"># gates LinkedIn/Indeed/Glassdoor</span>
+
+@dataclass(frozen=True)
+class EngineInput:
+    run_id: str;  tenant_id: str
+    profile: ProfileSpec
+    resumes: list[ResumeParse]
+    enabled_sources: list[str]
+    credentials: list[SourceCredential]  <span class="c"># decrypted, in-memory only</span>
+    limits: EngineLimits = EngineLimits()
+
+@dataclass
+class EngineResult:
+    run_id: str;  scraped: int;  new: int
+    matched: list[MatchedJob]
+    per_source: dict[str, dict]          <span class="c"># {source: {status, found, latency_ms, error}}</span>
+    missing_skills_tally: dict[str, int]
+    report_bytes: bytes | None
+    ai_degraded: bool
+
+<span class="c"># ports.py — the engine depends on these, never implements them</span>
+class SeenStore(Protocol):
+    def filter_new(self, tenant_id: str, hashes: list[str]) -> set[str]: ...
+    def mark_seen(self, tenant_id: str, hashes: list[str]) -> None: ...
+class RateLimiter(Protocol):
+    async def acquire(self, key: str) -> None: ...
+class LLMClient(Protocol):
+    async def complete(self, prompt: str, *, temperature: float = 0.0) -> str: ...</pre>
+
+  <p class="label-mono">Verify before 4.2</p>
+  <ul class="verify">
+    <li><code>uv sync</code> succeeds at the workspace root.</li>
+    <li><code>uv run pytest packages/engine</code> — every moved test passes (imports <code>job_hunter.</code> → <code>recruit_engine.</code>).</li>
+    <li><code>uv run python -c "from recruit_engine.scrapers import SCRAPERS; print(sorted(SCRAPERS))"</code> prints <code>['hackernews','jobspy','wellfound','yc']</code>.</li>
+    <li><code>docker compose up -d postgres redis minio</code> → three healthy containers, each reachable with its CLI.</li>
+    <li><code>git grep -nE "naukri|unstop|cutshort|internshala" packages/</code> → no hits.</li>
+    <li><code>ci.yml</code> is green on the restructure PR.</li>
+  </ul>
+
+  <!-- ============ PHASE 2 ============ -->
+  <div class="phase-head" id="p2"><span class="pnum">4.2</span><h3>Auth + user accounts</h3></div>
+  <p class="phase-goal">FastAPI app factory, Postgres via async SQLAlchemy + Alembic, argon2id passwords, RS256 access JWT + rotating refresh tokens with reuse detection, email verification, RBAC dependencies, admin stubs. Next.js auth pages + guarded shell.</p>
+
+  <p class="label-mono">Files</p>
+  <pre class="tree">backend/
+├── pyproject.toml   <span class="c"># fastapi, uvicorn, sqlalchemy[asyncio], asyncpg, alembic,</span>
+│                    <span class="c">#   pydantic-settings, argon2-cffi, pyjwt[crypto], python-multipart</span>
+├── alembic.ini  ·  migrations/versions/0001_users_auth.py
+├── src/recruit_api/
+│   ├── main.py            <span class="c"># create_app(); mounts routers; middleware</span>
+│   ├── config.py          <span class="c"># Settings(BaseSettings)</span>
+│   ├── db.py              <span class="c"># async engine + get_db() session dep</span>
+│   ├── models/base.py     <span class="c"># Base, TimestampMixin, TenantMixin(user_id)</span>
+│   ├── models/user.py     <span class="c"># User + UserRole/UserPlan/UserStatus enums</span>
+│   ├── models/auth.py     <span class="c"># RefreshToken, EmailVerificationToken, PasswordResetToken</span>
+│   ├── security/passwords.py  ·  security/jwt.py  ·  security/deps.py
+│   ├── services/auth_service.py  ·  services/email_service.py  <span class="c"># EmailSender→Resend</span>
+│   └── routers/auth.py  ·  routers/me.py  ·  routers/admin.py
+└── tests/conftest.py  ·  test_auth_flow.py  ·  test_rbac.py
+
+frontend/
+├── src/app/(auth)/{login,signup,verify,reset}/page.tsx
+├── src/app/(app)/layout.tsx            <span class="c"># guarded sidebar shell</span>
+├── src/lib/api.ts     <span class="c"># apiFetch: attach access token, refresh-on-401</span>
+├── src/lib/auth.ts    <span class="c"># useSession, login, signup, logout</span>
+└── src/middleware.ts  <span class="c"># unauthenticated (app)/* → /login</span></pre>
+
+  <p class="label-mono">Key signatures</p>
+  <pre class="sig"><span class="c"># security/jwt.py</span>
+def create_access_token(*, sub: str, role: str, plan: str, ttl_s: int = 900) -> str
+def decode_access_token(token: str) -> AccessClaims          <span class="c"># raises AuthError</span>
+
+<span class="c"># services/auth_service.py</span>
+class AuthService:
+    async def signup(self, email, password, full_name) -> User
+    async def login(self, email, password, *, ua, ip) -> TokenPair
+    async def refresh(self, raw_refresh, *, ua, ip) -> TokenPair   <span class="c"># rotates; reuse → revoke family</span>
+    async def logout(self, raw_refresh) -> None
+    async def verify_email(self, token) -> None
+    async def start_password_reset(self, email) -> None
+    async def finish_password_reset(self, token, new_password) -> None
+
+<span class="c"># security/deps.py</span>
+async def get_current_user(...) -> User
+def require_role(*roles: str) -> Callable
+def require_plan(*plans: str) -> Callable
+
+<span class="c"># frontend/src/lib/api.ts</span>
+export async function apiFetch&lt;T&gt;(path: string, init?: RequestInit &amp; { auth?: boolean }): Promise&lt;T&gt;</pre>
+  <p style="max-width:var(--measure);font-size:.92rem;color:var(--ink-soft)">Endpoints: <code>POST /api/v1/auth/{signup,login,refresh,logout,verify-email,forgot,reset}</code> · <code>GET·PATCH /api/v1/me</code> · <code>GET /api/v1/admin/users</code> · <code>POST /api/v1/admin/users/{id}:suspend</code>. Access token lives in memory; refresh token in an httpOnly <code>Secure</code> <code>SameSite=Lax</code> cookie.</p>
+
+  <p class="label-mono">Verify before 4.3</p>
+  <ul class="verify">
+    <li><code>alembic upgrade head</code> creates <code>users</code> + 3 token tables; <code>downgrade base</code> is clean.</li>
+    <li><code>pytest backend</code>: signup → login → call <code>/me</code> → refresh rotates (old refresh now 401) → replaying the rotated refresh revokes the whole family → logout.</li>
+    <li><code>test_rbac.py</code>: <code>user</code> hitting <code>/admin/users</code> → 403; <code>admin</code> → 200; tenant A cannot read tenant B.</li>
+    <li>Frontend: sign up → land on <code>/dashboard</code> shell; hard-reload keeps the session; logout clears it; visiting <code>/dashboard</code> logged-out redirects to <code>/login</code>.</li>
+    <li><code>GET /docs</code> lists every auth / me / admin route.</li>
+  </ul>
+
+  <!-- ============ PHASE 3 ============ -->
+  <div class="phase-head" id="p3"><span class="pnum">4.3</span><h3>Job-profile builder + persistence</h3></div>
+  <p class="phase-goal"><code>job_profiles</code>, <code>resumes</code>, <code>resume_parses</code> tables. Résumé PDF → object storage → async parse task (the worker gets introduced here, minimally). The 5-step Next.js wizard with autosaved draft.</p>
+
+  <p class="label-mono">Files</p>
+  <pre class="tree">backend/src/recruit_api/
+├── models/job_profile.py  ·  models/resume.py
+├── schemas/job_profile.py  ·  schemas/resume.py
+├── services/job_profile_service.py
+├── services/resume_service.py          <span class="c"># validate PDF, sha256, store, enqueue parse</span>
+├── services/object_store.py            <span class="c"># S3Client protocol + minio/boto3 impl</span>
+└── routers/job_profiles.py  ·  routers/resumes.py
+migrations/versions/0002_job_profiles_resumes.py
+
+worker/                                 <span class="c"># minimal introduction</span>
+├── pyproject.toml                      <span class="c"># arq, recruit-engine, sqlalchemy, boto3, httpx</span>
+├── src/recruit_worker/settings.py      <span class="c"># WorkerSettings: functions=[parse_resume]</span>
+├── src/recruit_worker/ports/llm_openrouter.py   <span class="c"># LLMClient — per-call client</span>
+└── src/recruit_worker/tasks/parse_resume.py
+
+packages/engine/src/recruit_engine/ai.py    <span class="c"># extract pure helpers (below)</span>
+
+frontend/src/app/(app)/profiles/{page,new/page,[id]/page}.tsx
+frontend/src/components/profile-wizard/{ProfileWizard,StepRoles,StepLocations,
+    StepFilters,StepResume,StepReview}.tsx
+frontend/src/lib/schemas.ts             <span class="c"># zod profileSchema (shared validation)</span></pre>
+
+  <p class="label-mono">Key signatures</p>
+  <pre class="sig"><span class="c"># services/job_profile_service.py</span>
+class JobProfileService:
+    async def create(self, user_id, data: JobProfileIn) -> JobProfile
+    async def list(self, user_id) -> list[JobProfile]
+    async def get(self, user_id, profile_id) -> JobProfile        <span class="c"># 404 if not owner</span>
+    async def update(self, user_id, profile_id, patch) -> JobProfile
+    async def delete(self, user_id, profile_id) -> None
+    async def set_active(self, user_id, profile_id, active: bool) -> JobProfile
+
+<span class="c"># services/resume_service.py</span>
+class ResumeService:
+    async def upload(self, user_id, filename, content: bytes, *,
+                     job_profile_id: str | None) -> Resume        <span class="c"># → enqueue parse_resume</span>
+    async def get(self, user_id, resume_id) -> Resume
+    async def delete(self, user_id, resume_id) -> None
+
+<span class="c"># packages/engine/src/recruit_engine/ai.py  (pure, no client creation)</span>
+def extract_text_from_pdf(data: bytes) -> str
+async def parse_resume_text(text: str, llm: LLMClient) -> dict
+
+<span class="c"># worker/tasks/parse_resume.py</span>
+async def parse_resume(ctx: dict, resume_id: str) -> None
+<span class="c"># load Resume → fetch bytes → parse_resume_text → write ResumeParse, set Resume.status</span>
+
+<span class="c"># frontend</span>
+export function ProfileWizard(props: { mode: "create" | "edit"; profileId?: string }): JSX.Element</pre>
+
+  <p class="label-mono">Verify before 4.4</p>
+  <ul class="verify">
+    <li><code>alembic upgrade head</code> adds the three tables.</li>
+    <li><code>pytest backend</code>: full CRUD + ownership (tenant B <code>GET</code> A's profile → 404); bad payload → 422.</li>
+    <li>Upload a fixture PDF → <code>Resume.status == "uploaded"</code> and a job is enqueued; run the worker → <code>status == "parsed"</code>, <code>ResumeParse.skills</code> non-empty. Non-PDF → 415. Image-only PDF fixture → <code>status == "failed"</code> with a reason, no crash.</li>
+    <li><code>docker compose up worker</code> — arq boots and drains the parse job.</li>
+    <li>Frontend: finish the 5-step wizard → profile in the list; reload mid-wizard → draft restored; edit → PATCH persists; parsed skills render in <code>StepResume</code> within a few seconds.</li>
+    <li><code>git grep</code> confirms no <code>recruit_engine</code> module imports <code>recruit_api</code>.</li>
+  </ul>
+
+  <!-- ============ PHASE 4 ============ -->
+  <div class="phase-head" id="p4"><span class="pnum">4.4</span><h3>Tenant-aware queued engine</h3></div>
+  <p class="phase-goal">The core. <code>run_engine()</code> gets its full implementation against injected ports; <code>execute_run</code> task; <code>runs</code> / <code>run_steps</code> / <code>run_sources</code> / <code>job_matches</code>; Redis token-bucket limiter (per <code>(site,user)</code> + global ceiling); idempotency + safe retry; the 60-second scheduler; scrapers de-hardcoded.</p>
+
+  <p class="label-mono">Files</p>
+  <pre class="tree">packages/engine/src/recruit_engine/
+├── engine.py            <span class="c"># run_engine() — full: scrape → dedupe → match → report, emits on_step</span>
+├── scrapers/base.py     <span class="c"># Scraper.fetch(spec, cred, rl, *, timeout_s) -> list[JobPosting]</span>
+├── scrapers/*.py        <span class="c"># de-hardcoded: no India/2027 defaults; all filters from spec;</span>
+│                        <span class="c">#   jobspy skips LinkedIn/Indeed/Glassdoor unless spec.big3_optin</span>
+├── dedupe.py            <span class="c"># compute_external_hash(job) -> str  (stable)</span>
+└── matching.py          <span class="c"># batch_match(...) — no time.sleep; concurrency is the caller's</span>
+
+worker/src/recruit_worker/
+├── settings.py          <span class="c"># functions=[parse_resume, execute_run]; cron_jobs=[enqueue_due_runs]</span>
+├── policies.py          <span class="c"># SitePolicy per site {rpm, burst, min_delay_ms, allowed_hours}</span>
+├── tasks/execute_run.py  ·  scheduler.py
+├── run_context.py       <span class="c"># DB rows → EngineInput; decrypt credentials</span>
+├── persistence.py       <span class="c"># EngineResult → runs/run_steps/run_sources/job_matches + upload report</span>
+└── adapters/
+    ├── seen_store_pg.py         <span class="c"># over job_matches, unique(user_id, external_hash)</span>
+    ├── rate_limiter_redis.py    <span class="c"># Lua token bucket: key = f"{site}:{user_id}" + f"{site}:*"</span>
+    ├── llm_openrouter.py        <span class="c"># per-call client + global asyncio.Semaphore</span>
+    ├── object_store_s3.py  ·  adapters/email_resend.py
+
+backend/src/recruit_api/
+├── models/run.py        <span class="c"># Run, RunStep, RunSource, JobMatch</span>
+├── services/run_service.py
+└── routers/runs.py      <span class="c"># + SSE /runs/{id}/events</span>  ·  routers/matches.py
+migrations/versions/0003_runs_matches.py   <span class="c"># incl. job_profiles.big3_optin bool default false</span></pre>
+
+  <p class="label-mono">Key signatures</p>
+  <pre class="sig"><span class="c"># packages/engine/src/recruit_engine/engine.py</span>
+async def run_engine(inp: EngineInput, *, seen: SeenStore, rate_limiter: RateLimiter,
+                     llm: LLMClient, clock: Clock,
+                     on_step: Callable[[str, str, dict], Awaitable[None]] | None = None
+                     ) -> EngineResult
+
+<span class="c"># worker/tasks/execute_run.py</span>
+async def execute_run(ctx: dict, run_id: str) -> None
+<span class="c">#  1. load Run; if already terminal → return           (idempotent re-delivery)</span>
+<span class="c">#  2. mark running, started_at, worker_id</span>
+<span class="c">#  3. inp = run_context.build_input(run)</span>
+<span class="c">#  4. result = await run_engine(inp, seen=…, rate_limiter=…, llm=…, on_step=persist_step)</span>
+<span class="c">#  5. persistence.save_result(run, result)   (job_matches upsert ON CONFLICT)</span>
+<span class="c">#  6. if result.matched and run.notified_at is None: send email; set notified_at</span>
+<span class="c">#  7. status = succeeded | partial(some source failed)</span>
+<span class="c">#     transient error (httpx.TransportError, 429, 5xx) → raise Retry(defer=backoff(attempt))</span>
+
+<span class="c"># worker/scheduler.py</span>
+async def enqueue_due_runs(ctx: dict) -> None
+<span class="c">#  per active JobProfile whose schedule_cron is due this minute (tz-aware):</span>
+<span class="c">#    idem = f"sched:{profile_id}:{local_date}"</span>
+<span class="c">#    with redis lock f"lock:sched:{profile_id}": if no Run(idem) → create + enqueue</span>
+
+<span class="c"># backend/services/run_service.py</span>
+class RunService:
+    async def create(self, user_id, profile_id, *, trigger: str,
+                     idempotency_key: str | None) -> Run          <span class="c"># returns existing Run on dup key</span>
+    async def get / list / cancel(...)
+    async def stream_events(self, user_id, run_id) -> AsyncIterator[ServerSentEvent]</pre>
+  <p style="max-width:var(--measure);font-size:.92rem;color:var(--ink-soft)"><b>De-hardcoding checklist:</b> delete <code>ai._client</code> global; <code>OPENROUTER_MODEL</code> from settings not module env; drop <code>matching.time.sleep(6)</code>; <code>jobspy.LOCATION_MAP</code> / <code>country_indeed</code> derived from <code>spec.locations</code>, default <code>None</code>; dedupe SQLite → <code>SeenStore</code> port; <code>report</code> returns bytes, caller uploads.</p>
+
+  <p class="label-mono">Verify before 4.5</p>
+  <ul class="verify">
+    <li><code>pytest packages/engine</code>: <code>run_engine</code> with fake ports yields an <code>EngineResult</code>; one scraper raising → that source <code>failed</code>, others still populate; all-LLM-fallback → <code>ai_degraded=True</code>.</li>
+    <li><code>pytest worker</code> against test PG + fakeredis + moto S3: <code>execute_run</code> happy path → <code>Run.status=succeeded</code>, <code>job_matches</code> written, report object present, one <code>notifications</code> row.</li>
+    <li>Re-invoke <code>execute_run</code> with the same <code>run_id</code> after success → no-op, <b>no second email</b> (<code>notified_at</code> unchanged).</li>
+    <li>Transient error on attempt 1 → arq <code>Retry</code>; attempt 2 completes; still exactly one email.</li>
+    <li><code>enqueue_due_runs</code> invoked 3× concurrently for one due profile → exactly one <code>Run</code> created.</li>
+    <li>Limiter: 30 × <code>acquire("linkedin:userA")</code> at rpm=10 spans ≥ ~2 windows; <code>linkedin:userB</code> not starved; <code>linkedin:*</code> caps combined throughput.</li>
+    <li>Compose up <code>api</code> + <code>worker</code>: <code>POST /runs</code> → 202; <code>GET /runs/{id}</code> walks <code>queued→running→succeeded</code>; <code>curl -N /runs/{id}/events</code> streams steps; second <code>POST</code> with the same <code>Idempotency-Key</code> returns the same <code>run_id</code>.</li>
+    <li>With <code>big3_optin=false</code>, <code>per_source["jobspy"]</code> reads <code>skipped (not opted in)</code>.</li>
+  </ul>
+
+  <!-- ============ PHASE 5 ============ -->
+  <div class="phase-head" id="p5"><span class="pnum">4.5</span><h3>Dashboard</h3></div>
+  <p class="phase-goal">Two read endpoints plus the operator-facing screens: summary tiles + match-rate sparkline, run history, a live SSE step timeline, the filterable matches table with save / apply / dismiss and Excel export.</p>
+
+  <p class="label-mono">Files</p>
+  <pre class="tree">backend/src/recruit_api/
+├── services/dashboard_service.py  ·  routers/dashboard.py   <span class="c"># GET /api/v1/dashboard/summary</span>
+└── services/report_service.py                               <span class="c"># GET /api/v1/matches/export.xlsx</span>
+
+frontend/src/app/(app)/
+├── dashboard/page.tsx    <span class="c"># server component: RunStatusCard, MetricTiles, MatchRateSparkline,</span>
+│                         <span class="c">#   LatestMatchesTable, RunNowButton</span>
+├── runs/page.tsx  ·  runs/[id]/page.tsx     <span class="c"># RunsTable ; RunTimeline over EventSource</span>
+└── matches/page.tsx      <span class="c"># MatchesTable: filters (min match, status, q, profile) + row actions</span>
+frontend/src/components/charts/Sparkline.tsx   <span class="c"># inline SVG, no library</span>
+frontend/src/components/runs/{RunTimeline,StatusPill}.tsx
+frontend/src/lib/sse.ts   <span class="c"># useRunEvents(runId): { steps, status }</span></pre>
+
+  <p class="label-mono">Key signatures</p>
+  <pre class="sig"><span class="c"># services/dashboard_service.py</span>
+class DashboardService:
+    async def summary(self, user_id: str) -> DashboardSummary
+<span class="c"># DashboardSummary: runs_30d, last_run{status, at}, matches_total, matches_new,</span>
+<span class="c">#   applied_count, match_rate_series: list[{date, pct}], top_missing_skills: list[{skill, n}]</span>
+
+<span class="c"># frontend/src/lib/sse.ts</span>
+export function useRunEvents(runId: string): { steps: RunStep[]; status: RunStatus }
+export const runsApi = { create, list, get, cancel }        <span class="c"># create() sends Idempotency-Key</span>
+export const matchesApi = { list, patch }                   <span class="c"># patch(id, {status})</span></pre>
+
+  <p class="label-mono">Verify before 4.6</p>
+  <ul class="verify">
+    <li><code>GET /dashboard/summary</code> returns correct counts against fixtures (3 runs, N matches, 2 applied).</li>
+    <li>"Run now" triggers a run and the Runs table shows it move <code>queued→succeeded</code> with no manual refresh; <code>runs/[id]</code> timeline fills step-by-step during a live run.</li>
+    <li>Matches: <code>min_match=70</code> filter narrows rows; marking one "applied" persists across reload and bumps the dashboard "applied" tile.</li>
+    <li>Export downloads a valid <code>.xlsx</code> that opens with its 4 sheets.</li>
+    <li>New account renders empty states, not spinners or errors. Status pills carry text, not colour alone; the matches table is keyboard-navigable.</li>
+  </ul>
+
+  <!-- ============ PHASE 6 ============ -->
+  <div class="phase-head" id="p6"><span class="pnum">4.6</span><h3>Account settings + encrypted credentials</h3></div>
+  <p class="phase-goal"><code>site_credentials</code> with envelope encryption (per-row data key, XChaCha20-Poly1305, wrapped by a master key with <code>key_version</code>); a per-site verify task; account management (change email/password, delete account with full cascade); the LinkedIn/Indeed/Glassdoor consent panel that flips <code>big3_optin</code>.</p>
+
+  <p class="label-mono">Files</p>
+  <pre class="tree">backend/src/recruit_api/
+├── models/site_credential.py           <span class="c"># ciphertext, nonce, key_version, status</span>
+├── schemas/site_credential.py          <span class="c"># SiteCredentialOut NEVER carries the secret</span>
+├── security/crypto.py                  <span class="c"># Envelope + MasterKeyProvider (Env | Kms stub)</span>
+├── services/site_credential_service.py
+├── services/account_service.py         <span class="c"># change_password/email, delete_account (cascade)</span>
+└── routers/site_credentials.py  ·  routers/account.py
+worker/src/recruit_worker/tasks/verify_credential.py
+worker/src/recruit_worker/run_context.py    <span class="c"># now decrypts → SourceCredential</span>
+migrations/versions/0004_site_credentials.py
+
+frontend/src/app/(app)/settings/{page,credentials/page,danger/page}.tsx
+frontend/src/components/settings/{CredentialCard,Big3ConsentPanel}.tsx</pre>
+
+  <p class="label-mono">Key signatures</p>
+  <pre class="sig"><span class="c"># security/crypto.py — envelope encryption</span>
+class Envelope:
+    def __init__(self, master_key_provider: MasterKeyProvider)
+    def encrypt(self, plaintext: bytes) -> tuple[bytes, bytes, int]   <span class="c"># (ciphertext, nonce, key_version)</span>
+    def decrypt(self, ciphertext: bytes, nonce: bytes, key_version: int) -> bytes
+
+<span class="c"># services/site_credential_service.py</span>
+class SiteCredentialService:
+    async def upsert(self, user_id, site, payload: dict, label: str) -> SiteCredential   <span class="c"># encrypts</span>
+    async def list(self, user_id) -> list[SiteCredential]             <span class="c"># metadata only</span>
+    async def verify(self, user_id, site) -> SiteCredential           <span class="c"># enqueues verify_credential</span>
+    async def delete(self, user_id, site) -> None
+    async def decrypt_for_run(self, user_id) -> list[SourceCredential]  <span class="c"># worker-only import path</span>
+
+<span class="c"># services/account_service.py</span>
+class AccountService:
+    async def change_password(self, user_id, current, new) -> None    <span class="c"># revokes all refresh families</span>
+    async def request_email_change(self, user_id, new_email) -> None  <span class="c"># re-verify</span>
+    async def delete_account(self, user_id) -> None                   <span class="c"># profiles, resumes+S3, runs, matches, creds</span></pre>
+
+  <p class="label-mono">Verify before 4.7</p>
+  <ul class="verify">
+    <li>Crypto: <code>encrypt→decrypt</code> round-trips; two encryptions of the same plaintext differ; tampered ciphertext raises; rotating the master key leaves old <code>key_version</code> rows decryptable.</li>
+    <li><code>PUT /site-credentials/linkedin</code> stores a row whose DB representation is ciphertext only; <code>GET</code> returns <code>{site, auth_type, status, label}</code> and <b>no secret</b>.</li>
+    <li><code>:verify</code> enqueues <code>verify_credential</code>; the worker sets <code>valid</code>/<code>invalid</code>; the UI chip updates.</li>
+    <li><code>git grep</code>: no router imports <code>crypto.decrypt</code> or <code>decrypt_for_run</code> — only the worker path does.</li>
+    <li>Change password → existing refresh tokens all rejected next use. <code>DELETE /me</code> removes every tenant row and S3 object for that user (assert the object prefix is empty) and the JWT stops working.</li>
+    <li>Consent: <code>big3_optin=false</code> (default) → runs report <code>jobspy: skipped</code>; toggling it on in settings (after the disclosure copy) makes the next run include it.</li>
+    <li>Full smoke: signup → profile → résumé → credential → run → dashboard shows results. <code>pytest backend worker</code> green.</li>
+  </ul>
+
+  <!-- ============ PHASE 7 ============ -->
+  <div class="phase-head" id="p7"><span class="pnum">4.7</span><h3>Deployment config</h3></div>
+  <p class="phase-goal">One-command local stack, env template, seed data, container images, CI, and the production-topology notes from §2.9 written down (not built).</p>
+
+  <p class="label-mono">Files</p>
+  <pre class="tree">recruit-me/
+├── docker-compose.yml            <span class="c"># postgres, redis, minio, minio-setup, api, worker, scheduler, web</span>
+├── docker-compose.override.yml.example   <span class="c"># hot-reload volumes</span>
+├── .env.example                  <span class="c"># every var, grouped + commented (see below)</span>
+├── Makefile                      <span class="c"># up · down · migrate · seed · test · lint · fmt · logs</span>
+├── backend/Dockerfile  ·  worker/Dockerfile  ·  frontend/Dockerfile   <span class="c"># multi-stage, non-root</span>
+├── scripts/seed.py               <span class="c"># demo@recruit.me / password + 1 profile, 1 résumé, 3 runs, ~40 matches</span>
+├── infra/postgres/init.sql       <span class="c"># citext, pgcrypto</span>
+├── infra/nginx.conf.example
+├── .github/workflows/ci.yml      <span class="c"># ruff + type check + pytest(engine,backend,worker) + next build</span>
+├── .github/workflows/images.yml  <span class="c"># build + push on tag, trivy scan</span>
+└── docs/DEPLOY.md  ·  docs/RUNBOOK.md</pre>
+  <pre class="sig"><span class="c"># .env.example — groups</span>
+app:        SECRET_KEY, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY, ENV
+db:         DATABASE_URL
+redis:      REDIS_URL
+objstore:   S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY
+crypto:     CREDENTIAL_MASTER_KEY, CREDENTIAL_KEY_VERSION
+email:      EMAIL_PROVIDER=resend, RESEND_API_KEY, EMAIL_FROM
+llm:        OPENROUTER_API_KEY, OPENROUTER_MODEL
+scraping:   BIG3_ENABLED_GLOBAL=false, HTTP_PROXY_URL (optional)
+frontend:   NEXT_PUBLIC_API_URL
+
+<span class="c"># docs/DEPLOY.md — prod topology (architected, not built): LB → api ×N ;</span>
+<span class="c"># worker Deployment autoscaled on Redis list length (KEDA trigger snippet) split</span>
+<span class="c"># scrape/match ; scheduler ×1 leader-locked ; managed PG/Redis/S3 ; secret manager ;</span>
+<span class="c"># NAT/proxy egress for scrape ; migrations as a pre-deploy job ; OTel + Sentry.</span></pre>
+
+  <p class="label-mono">Verify — this is also the whole-project acceptance test</p>
+  <ul class="verify">
+    <li>Fresh clone → <code>cp .env.example .env</code> → <code>make up</code> → <code>make migrate</code> → <code>make seed</code>. All 7 containers healthy.</li>
+    <li><code>localhost:3000</code> → log in as <code>demo@recruit.me</code> → dashboard shows the 3 seeded runs and ~40 matches with a populated sparkline.</li>
+    <li>"Run now" → live timeline completes → new matches appear → an email lands in the mail sandbox.</li>
+    <li><code>docker compose stop worker</code> mid-run, then start → the run reaches a terminal state and still sends exactly one email.</li>
+    <li><code>docker compose down && up</code> → data persists; <code>down -v</code> → clean slate.</li>
+    <li><code>ci.yml</code> green on a PR; <code>images.yml</code> builds all three images, <code>trivy</code> reports no HIGH/CRITICAL in runtime layers, containers run as non-root.</li>
+    <li><code>docs/DEPLOY.md</code>: each compose service maps to a k8s Deployment and the worker autoscale trigger (Redis list length) is spelled out.</li>
+  </ul>
+</section>
+
+<div class="endnote">
+  <h3>Status</h3>
+  <p>Steps 1&ndash;3 complete and approved. Queue (Arq), email (Resend behind an interface), and the source list are locked; Internshala &amp; Cutshort are dropped with Internshala flagged as an easy later re-add.</p>
+  <p>Next action: <b>Phase 4.1 — repo restructuring.</b> Each phase merges only when its verify list is green; nothing in a later phase starts before the one before it lands.</p>
+</div>
+
+</main>
+</div>
+</div>
