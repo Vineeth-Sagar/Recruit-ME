@@ -1,0 +1,35 @@
+# Virtual workspace root — not a package itself. Members live in packages/, backend/, worker/.
+[tool.uv.workspace]
+members = ["packages/*", "backend", "worker"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/engine/tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [".venv", "_legacy"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+
+# The carried-over scrapers are rewritten to the Scraper protocol in Phase 4.4;
+# don't hold them to strict typing until then.
+[[tool.mypy.overrides]]
+module = "recruit_engine.scrapers.*"
+disable_error_code = ["arg-type"]
