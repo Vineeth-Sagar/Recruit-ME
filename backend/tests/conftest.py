@@ -1,5 +1,6 @@
 """Test harness: a real Postgres (testcontainers unless TEST_DATABASE_URL is
-set), migrations applied once, each test in a rolled-back transaction."""
+set), migrations applied once, each test in a rolled-back transaction. Object
+storage and the job queue are in-memory fakes shared with the worker fixtures."""
 
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
@@ -56,32 +57,71 @@ async def _engine(database_url: str):
 
 
 @pytest_asyncio.fixture
-async def db_session(_engine) -> AsyncIterator[AsyncSession]:
+async def _conn(_engine):
+    """One connection + outer transaction per test; everything rolls back."""
     async with _engine.connect() as conn:
         txn = await conn.begin()
-        session = AsyncSession(
-            bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint"
-        )
         try:
-            yield session
+            yield conn
         finally:
-            await session.close()
             await txn.rollback()
 
 
 @pytest.fixture
+def sessionmaker_bound(_conn) -> async_sessionmaker[AsyncSession]:
+    """Sessions that join the test's transaction (commits become savepoints)."""
+    return async_sessionmaker(
+        bind=_conn, expire_on_commit=False, join_transaction_mode="create_savepoint"
+    )
+
+
+@pytest_asyncio.fixture
+async def db_session(sessionmaker_bound) -> AsyncIterator[AsyncSession]:
+    async with sessionmaker_bound() as session:
+        yield session
+
+
+@pytest.fixture
+def shared_sessionmaker(db_session):
+    """A callable that hands out the test's single session without closing it —
+    lets worker tasks (`async with sessionmaker() as db`) share the txn."""
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _ctx():
+        yield db_session
+
+    return _ctx
+
+
+@pytest.fixture
 def sent_emails() -> list[dict[str, str]]:
-    """Populated with every email the app 'sends' during a test."""
+    return []
+
+
+@pytest.fixture
+def object_store():
+    from recruit_api.services.object_store import InMemoryObjectStore
+
+    return InMemoryObjectStore()
+
+
+@pytest.fixture
+def enqueued() -> list[tuple]:
+    """Every (fn, *args) the app enqueues during a test."""
     return []
 
 
 @pytest_asyncio.fixture
 async def client(
-    db_session: AsyncSession, sent_emails: list[dict[str, str]]
+    db_session: AsyncSession,
+    sent_emails: list[dict[str, str]],
+    object_store,
+    enqueued: list[tuple],
 ) -> AsyncIterator[AsyncClient]:
     from recruit_api.db import get_db
     from recruit_api.main import create_app
-    from recruit_api.security.deps import get_email_sender
+    from recruit_api.security.deps import get_email_sender, get_enqueue_dep, get_object_store
 
     async def _override_get_db() -> AsyncIterator[AsyncSession]:
         yield db_session
@@ -90,25 +130,75 @@ async def client(
         async def send(self, *, to: str, subject: str, html: str) -> None:
             sent_emails.append({"to": to, "subject": subject, "html": html})
 
+    async def _fake_enqueue(fn: str, *args) -> None:
+        enqueued.append((fn, *args))
+
     app = create_app()
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_email_sender] = lambda: _CaptureSender()
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    app.dependency_overrides[get_object_store] = lambda: object_store
+    app.dependency_overrides[get_enqueue_dep] = lambda: _fake_enqueue
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()
 
 
-# ── helpers ──────────────────────────────────────────────────────────────
+@pytest.fixture
+def worker_ctx(shared_sessionmaker, object_store):
+    """ctx dict for calling worker tasks directly, sharing the test's DB txn
+    and object store. `llm` defaults to a canned parser; override per test."""
+
+    class _CannedLLM:
+        payload = (
+            '{"name": "Test User", "technical_skills": ["Python", "FastAPI"], '
+            '"languages": ["Python"], "frameworks": ["FastAPI"], "tools": ["Docker"], '
+            '"summary": "A tester."}'
+        )
+
+        async def complete(self, prompt: str, *, temperature: float = 0.0) -> str:
+            return self.payload
+
+    return {
+        "sessionmaker": shared_sessionmaker,
+        "object_store": object_store,
+        "llm": _CannedLLM(),
+        "llm_model": "test-model",
+    }
+
+
+# ── PDF byte helpers ─────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def pdf_with_text() -> bytes:
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Test User\nSkills: Python, FastAPI, Docker, PostgreSQL")
+    data: bytes = doc.tobytes()
+    doc.close()
+    return data
+
+
+@pytest.fixture
+def pdf_no_text() -> bytes:
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page()  # blank page, no text layer
+    data: bytes = doc.tobytes()
+    doc.close()
+    return data
+
+
+# ── user / auth helpers ──────────────────────────────────────────────────
 
 
 @pytest_asyncio.fixture
 async def make_user(db_session: AsyncSession):
-    """Create a user row directly (bypassing signup email)."""
     from recruit_api.models.user import User, UserRole, UserStatus
     from recruit_api.security.passwords import hash_password
-
-    created: list[User] = []
 
     async def _make(
         email: str,
@@ -126,7 +216,6 @@ async def make_user(db_session: AsyncSession):
         )
         db_session.add(user)
         await db_session.flush()
-        created.append(user)
         return user
 
     return _make
@@ -134,8 +223,6 @@ async def make_user(db_session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def auth_headers(client: AsyncClient, make_user):
-    """(email) -> Authorization header dict for a logged-in active user."""
-
     async def _for(email: str, password: str = "password123", **kw):
         await make_user(email, password, **kw)
         resp = await client.post("/api/v1/auth/login", json={"email": email, "password": password})

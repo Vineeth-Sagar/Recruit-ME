@@ -2,6 +2,8 @@
 
 from .auth import EmailVerificationToken, PasswordResetToken, RefreshToken
 from .base import Base
+from .job_profile import JobProfile
+from .resume import Resume, ResumeParse, ResumeStatus
 from .user import User, UserPlan, UserRole, UserStatus
 
 __all__ = [
@@ -13,4 +15,8 @@ __all__ = [
     "RefreshToken",
     "EmailVerificationToken",
     "PasswordResetToken",
+    "JobProfile",
+    "Resume",
+    "ResumeParse",
+    "ResumeStatus",
 ]

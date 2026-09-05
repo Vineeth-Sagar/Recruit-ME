@@ -14,6 +14,10 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .ports import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -118,17 +122,27 @@ def compute_resume_hash(pdf_path: Path) -> str:
 def extract_text_from_pdf(pdf_path: Path) -> str:
     """Extract plain text from a PDF resume using PyMuPDF."""
     try:
-        import fitz  # PyMuPDF
-
-        doc = fitz.open(str(pdf_path))
-        pages = [page.get_text("text") for page in doc]
-        doc.close()
-        return "\n".join(pages)
-    except ImportError:
-        logger.error("PyMuPDF not installed. Run: pip install PyMuPDF")
-        return ""
+        return extract_text_from_pdf_bytes(Path(pdf_path).read_bytes())
     except Exception as e:
         logger.error(f"PDF read error for {pdf_path}: {e}")
+        return ""
+
+
+def extract_text_from_pdf_bytes(data: bytes) -> str:
+    """Extract plain text from PDF bytes. Returns "" for an image-only /
+    unreadable PDF (the caller treats an empty result as a parse failure)."""
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        logger.error("PyMuPDF not installed.")
+        return ""
+    try:
+        doc = fitz.open(stream=data, filetype="pdf")
+        pages = [page.get_text("text") for page in doc]
+        doc.close()
+        return "\n".join(pages).strip()
+    except Exception as e:
+        logger.error(f"PDF parse error: {e}")
         return ""
 
 
@@ -161,6 +175,33 @@ You are an expert resume parser. Analyse the resume text below and return ONLY a
 Resume text:
 {resume_text}
 """
+
+
+def skills_from_parse(parsed: dict) -> list[str]:
+    """Flatten a parsed résumé's skill-ish lists into a deduped list."""
+    seen: dict[str, None] = {}
+    for key in ("technical_skills", "languages", "frameworks", "tools"):
+        for item in parsed.get(key, []) or []:
+            s = str(item).strip()
+            if s and s.lower() not in {k.lower() for k in seen}:
+                seen[s] = None
+    return list(seen)
+
+
+async def parse_resume_text(text: str, llm: "LLMClient") -> dict:
+    """Parse résumé text into structured JSON via an injected LLM client.
+
+    Pure: no client construction, no environment reads. Raises nothing for a
+    non-JSON reply — returns a minimal fallback dict instead.
+    """
+    if not text.strip():
+        return {"error": "no extractable text"}
+    raw = await llm.complete(RESUME_PARSE_PROMPT.format(resume_text=text[:6000]), temperature=0.0)
+    parsed = _extract_json(raw)
+    if not parsed:
+        logger.warning("resume parse returned no JSON")
+        return {"technical_skills": [], "summary": "", "error": "unparseable LLM response"}
+    return parsed
 
 
 def parse_resume(pdf_path: Path, api_key: str) -> dict:
