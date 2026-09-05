@@ -24,6 +24,7 @@ the web app and the edge middleware can see it.
 ```bash
 npm install
 npm run dev          # http://localhost:3000  (needs the API on :8000)
+# override the API target with API_PROXY_TARGET if the backend isn't on :8000
 ```
 
 ## Build / lint
