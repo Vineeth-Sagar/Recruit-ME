@@ -1,9 +1,34 @@
 # frontend
 
-Next.js 14 (App Router) + shadcn/ui.
+Next.js 14 (App Router, `src/`) + Tailwind + shadcn/ui primitives.
 
-**Not scaffolded yet.** Phase 4.2 runs `create-next-app` here (TypeScript, Tailwind,
-App Router, `src/`) and adds the auth pages + guarded shell. Package manager is
-pnpm via corepack: `corepack enable pnpm`.
+## Phase 4.2 — auth pages + guarded shell
 
-See `docs/architecture.html` §4.2–4.6 for the route map.
+- `src/lib/api.ts` — `apiFetch` with an in-memory access token + automatic
+  refresh-on-401
+- `src/lib/auth.tsx` — `AuthProvider` / `useAuth` (bootstraps by calling
+  `/auth/refresh` on load)
+- `src/lib/query.tsx` — TanStack Query provider
+- `src/middleware.ts` — redirects `(app)` routes to `/login` when the
+  `recruit_refresh` cookie is absent, and away from `/login` when present
+- `src/app/(auth)/{login,signup,verify,reset}` — react-hook-form + zod
+- `src/app/(app)/layout.tsx` — sidebar shell with a client-side auth guard
+- `src/app/(app)/dashboard` — placeholder dashboard
+
+The API is reached through a **same-origin proxy** (`next.config.mjs` rewrites
+`/api/*` → `http://localhost:8000`), so the httpOnly refresh cookie is scoped to
+the web app and the edge middleware can see it.
+
+## Run
+
+```bash
+npm install
+npm run dev          # http://localhost:3000  (needs the API on :8000)
+```
+
+## Build / lint
+
+```bash
+npm run build
+npm run lint
+```

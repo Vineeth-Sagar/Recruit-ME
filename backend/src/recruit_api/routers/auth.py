@@ -23,7 +23,9 @@ from ..services.auth_service import AuthService
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 REFRESH_COOKIE = "recruit_refresh"
-REFRESH_PATH = "/api/v1/auth"
+# Cookie path is "/" (not just the auth routes) so the web app's edge middleware
+# can see the cookie's presence to gate routes. It stays httpOnly + SameSite=lax.
+REFRESH_PATH = "/"
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 SettingsDep = Annotated[Settings, Depends(get_settings_dep)]
