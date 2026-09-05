@@ -94,9 +94,7 @@ async def test_parse_task_image_only_pdf_fails_cleanly(
 async def test_link_resume_to_profile(client, auth_headers, pdf_with_text):
     h = await auth_headers("linker@example.com")
     rid = (await client.post(BASE, files=_files(pdf_with_text), headers=h)).json()["id"]
-    pid = (
-        await client.post("/api/v1/job-profiles", json={"name": "P"}, headers=h)
-    ).json()["id"]
+    pid = (await client.post("/api/v1/job-profiles", json={"name": "P"}, headers=h)).json()["id"]
 
     r = await client.patch(f"{BASE}/{rid}", json={"job_profile_id": pid}, headers=h)
     assert r.status_code == 200
@@ -108,9 +106,9 @@ async def test_link_resume_to_profile(client, auth_headers, pdf_with_text):
 
     # cannot link to someone else's profile
     hb = await auth_headers("linker-b@example.com")
-    pid_b = (
-        await client.post("/api/v1/job-profiles", json={"name": "PB"}, headers=hb)
-    ).json()["id"]
+    pid_b = (await client.post("/api/v1/job-profiles", json={"name": "PB"}, headers=hb)).json()[
+        "id"
+    ]
     r = await client.patch(f"{BASE}/{rid}", json={"job_profile_id": pid_b}, headers=h)
     assert r.status_code == 404
 

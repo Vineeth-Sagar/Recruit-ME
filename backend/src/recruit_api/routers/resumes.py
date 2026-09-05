@@ -16,6 +16,7 @@ from ..services.resume_service import ResumeService
 class ResumeLinkIn(BaseModel):
     job_profile_id: uuid.UUID | None = None
 
+
 router = APIRouter(prefix="/resumes", tags=["resumes"])
 
 SvcDep = Annotated[ResumeService, Depends(get_resume_service)]

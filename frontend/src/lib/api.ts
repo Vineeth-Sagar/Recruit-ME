@@ -46,6 +46,9 @@ export async function refreshAccessToken(): Promise<string | null> {
       const resp = await raw("/auth/refresh", { method: "POST" });
       if (!resp.ok) {
         accessToken = null;
+        // Drop a stale/invalid refresh cookie so the edge middleware stops
+        // bouncing (app) routes back and forth with /login.
+        await raw("/auth/logout", { method: "POST" }).catch(() => {});
         return null;
       }
       const data = (await resp.json()) as { access_token: string };
@@ -71,6 +74,31 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
   const text = await resp.text();
   const data = text ? JSON.parse(text) : null;
 
+  if (!resp.ok) {
+    const err = data?.error ?? {};
+    throw new ApiError(resp.status, err.code ?? "error", err.message ?? resp.statusText);
+  }
+  return data as T;
+}
+
+/** multipart POST with the same access-token + refresh-on-401 handling. */
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const send = () =>
+    fetch(`${BASE}${path}`, {
+      method: "POST",
+      body: form,
+      credentials: "include",
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+    });
+
+  let resp = await send();
+  if (resp.status === 401) {
+    const fresh = await refreshAccessToken();
+    if (fresh) resp = await send();
+  }
+
+  const text = await resp.text();
+  const data = text ? JSON.parse(text) : null;
   if (!resp.ok) {
     const err = data?.error ?? {};
     throw new ApiError(resp.status, err.code ?? "error", err.message ?? resp.statusText);

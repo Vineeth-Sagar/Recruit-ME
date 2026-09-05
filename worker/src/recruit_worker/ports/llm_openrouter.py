@@ -11,6 +11,8 @@ class OpenRouterLLM:
         self._timeout = timeout
 
     async def complete(self, prompt: str, *, temperature: float = 0.0) -> str:
+        if not self._api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is not configured")
         from openai import AsyncOpenAI
 
         client = AsyncOpenAI(
