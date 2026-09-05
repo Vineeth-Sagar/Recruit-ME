@@ -14,8 +14,12 @@ from ..config import Settings, get_settings
 from ..db import get_db
 from ..errors import AuthError, ForbiddenError
 from ..models.user import User, UserStatus
+from ..queue import Enqueue, get_enqueue
 from ..services.auth_service import AuthService
 from ..services.email_service import EmailSender, build_email_sender
+from ..services.job_profile_service import JobProfileService
+from ..services.object_store import ObjectStore, build_object_store
+from ..services.resume_service import ResumeService
 from .jwt import decode_access_token
 
 _bearer = HTTPBearer(auto_error=False)
@@ -35,6 +39,29 @@ def get_auth_service(
     settings: Annotated[Settings, Depends(get_settings_dep)],
 ) -> AuthService:
     return AuthService(db, email, settings)
+
+
+def get_object_store(settings: Annotated[Settings, Depends(get_settings_dep)]) -> ObjectStore:
+    return build_object_store(settings)
+
+
+def get_enqueue_dep() -> Enqueue:
+    return get_enqueue()
+
+
+def get_job_profile_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> JobProfileService:
+    return JobProfileService(db)
+
+
+def get_resume_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    store: Annotated[ObjectStore, Depends(get_object_store)],
+    enqueue: Annotated[Enqueue, Depends(get_enqueue_dep)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+) -> ResumeService:
+    return ResumeService(db, store, enqueue, max_bytes=settings.max_resume_bytes)
 
 
 async def get_current_user(

@@ -1,14 +1,19 @@
 [project]
 name = "recruit-worker"
 version = "0.1.0"
-description = "Recruit-ME background workers — arq consumers running the engine per tenant. Filled in Phase 4.3+."
+description = "Recruit-ME background workers — arq consumers running the engine per tenant."
 requires-python = ">=3.12"
 dependencies = [
     "recruit-engine",
+    "recruit-api",
+    "arq>=0.26",
+    "boto3>=1.35",
+    "openai>=1.30",
 ]
 
 [tool.uv.sources]
 recruit-engine = { workspace = true }
+recruit-api = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

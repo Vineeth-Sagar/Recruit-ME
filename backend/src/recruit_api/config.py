@@ -28,6 +28,20 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     email_from: str = "Recruit-ME <noreply@example.com>"
 
+    # Object storage (MinIO locally, S3 in prod)
+    s3_endpoint: str = "http://localhost:19000"
+    s3_bucket: str = "recruit"
+    s3_access_key: str = "recruit"
+    s3_secret_key: str = "recruit-secret"
+    s3_region: str = "us-east-1"
+
+    # LLM (résumé parse; job matching lands in Phase 4.4)
+    openrouter_api_key: str = ""
+    openrouter_model: str = "nvidia/nemotron-3-super-120b-a12b:free"
+
+    # Upload limits
+    max_resume_bytes: int = 10 * 1024 * 1024
+
     frontend_base_url: str = "http://localhost:3000"
 
     @property
