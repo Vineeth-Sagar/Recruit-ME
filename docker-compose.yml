@@ -120,9 +120,10 @@ services:
         - "python"
         - "-c"
         - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
-      interval: 10s
-      timeout: 3s
-      retries: 10
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
     restart: unless-stopped
 
   # One-shot: bring the schema to head, then exit. `api`/`worker` wait on this.
@@ -195,9 +196,10 @@ services:
         - "node"
         - "-e"
         - "fetch('http://localhost:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-      interval: 10s
-      timeout: 3s
-      retries: 10
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
 volumes:
