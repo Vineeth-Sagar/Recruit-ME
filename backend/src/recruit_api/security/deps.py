@@ -15,12 +15,15 @@ from ..db import get_db
 from ..errors import AuthError, ForbiddenError
 from ..models.user import User, UserStatus
 from ..queue import Enqueue, get_enqueue
+from ..services.account_service import AccountService
 from ..services.auth_service import AuthService
 from ..services.email_service import EmailSender, build_email_sender
 from ..services.job_profile_service import JobProfileService
 from ..services.object_store import ObjectStore, build_object_store
 from ..services.resume_service import ResumeService
 from ..services.run_service import RunService
+from ..services.site_credential_service import SiteCredentialService
+from .crypto import Envelope, build_envelope
 from .jwt import decode_access_token
 
 _bearer = HTTPBearer(auto_error=False)
@@ -70,6 +73,27 @@ def get_run_service(
     enqueue: Annotated[Enqueue, Depends(get_enqueue_dep)],
 ) -> RunService:
     return RunService(db, enqueue)
+
+
+def get_envelope(settings: Annotated[Settings, Depends(get_settings_dep)]) -> Envelope:
+    return build_envelope(settings)
+
+
+def get_site_credential_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    envelope: Annotated[Envelope, Depends(get_envelope)],
+    enqueue: Annotated[Enqueue, Depends(get_enqueue_dep)],
+) -> SiteCredentialService:
+    return SiteCredentialService(db, envelope, enqueue)
+
+
+def get_account_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    email: Annotated[EmailSender, Depends(get_email_sender)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    store: Annotated[ObjectStore, Depends(get_object_store)],
+) -> AccountService:
+    return AccountService(db, email, settings, store)
 
 
 async def get_current_user(

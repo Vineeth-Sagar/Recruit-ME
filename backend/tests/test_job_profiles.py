@@ -60,6 +60,30 @@ async def test_update_and_delete(client, auth_headers):
     assert (await client.get(f"{BASE}/{pid}", headers=h)).status_code == 404
 
 
+async def test_big3_optin_defaults_off_and_can_be_toggled(client, auth_headers):
+    h = await auth_headers("big3@example.com")
+    created = (await client.post(BASE, json=SAMPLE, headers=h)).json()
+    assert created["big3_optin"] is False
+
+    r = await client.patch(f"{BASE}/{created['id']}", json={"big3_optin": True}, headers=h)
+    assert r.status_code == 200
+    assert r.json()["big3_optin"] is True
+
+    # untouched by a patch that doesn't mention it
+    r = await client.patch(f"{BASE}/{created['id']}", json={"name": "Still On"}, headers=h)
+    assert r.json()["big3_optin"] is True
+
+    r = await client.patch(f"{BASE}/{created['id']}", json={"big3_optin": False}, headers=h)
+    assert r.json()["big3_optin"] is False
+
+
+async def test_create_with_big3_optin_true(client, auth_headers):
+    h = await auth_headers("big3create@example.com")
+    r = await client.post(BASE, json={**SAMPLE, "big3_optin": True}, headers=h)
+    assert r.status_code == 201
+    assert r.json()["big3_optin"] is True
+
+
 async def test_activate_deactivate(client, auth_headers):
     h = await auth_headers("activator@example.com")
     pid = (await client.post(BASE, json=SAMPLE, headers=h)).json()["id"]

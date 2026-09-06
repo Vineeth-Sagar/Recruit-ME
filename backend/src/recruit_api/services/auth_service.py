@@ -30,6 +30,15 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+async def revoke_all_refresh_tokens(db: AsyncSession, user_id) -> None:
+    """Kill every live session for a user — used on password/email change too."""
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=_now())
+    )
+
+
 class AuthService:
     def __init__(self, db: AsyncSession, email: EmailSender, settings: Settings):
         self.db = db
@@ -190,11 +199,7 @@ class AuthService:
         return raw
 
     async def _revoke_all_for_user(self, user_id) -> None:
-        await self.db.execute(
-            update(RefreshToken)
-            .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
-            .values(revoked_at=_now())
-        )
+        await revoke_all_refresh_tokens(self.db, user_id)
 
     async def _send(self, to: str, subject: str, html: str) -> None:
         await self.email.send(to=to, subject=subject, html=html)

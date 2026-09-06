@@ -89,7 +89,7 @@ async def _run_once(ctx: dict, run_id: str) -> None:
         await clear_steps(db, run.id)
         await db.commit()
 
-        inp, known = await build_input(db, run)
+        inp, known = await build_input(db, run, envelope=ctx.get("envelope"))
         seen = PgSeenStore(known)
 
         async def on_step(name: str, status: str, detail: dict) -> None:

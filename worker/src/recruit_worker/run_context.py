@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+from recruit_api.config import get_settings
 from recruit_api.models.job_profile import JobProfile
 from recruit_api.models.resume import Resume, ResumeParse, ResumeStatus
 from recruit_api.models.run import Run
+from recruit_api.security.crypto import Envelope, build_envelope
 from recruit_engine.types import EngineInput, EngineLimits, ProfileSpec
 from recruit_engine.types import ResumeParse as EngineResumeParse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .adapters.seen_store_pg import load_known_hashes
+from .credentials import load_source_credentials
 
 
-async def build_input(db: AsyncSession, run: Run) -> tuple[EngineInput, set[str]]:
+async def build_input(
+    db: AsyncSession, run: Run, *, envelope: Envelope | None = None
+) -> tuple[EngineInput, set[str]]:
     profile = await db.get(JobProfile, run.job_profile_id)
     if profile is None:
         raise RuntimeError(f"job profile {run.job_profile_id} vanished")
@@ -59,13 +64,16 @@ async def build_input(db: AsyncSession, run: Run) -> tuple[EngineInput, set[str]
 
     known = await load_known_hashes(db, run.user_id)
 
+    envelope = envelope or build_envelope(get_settings())
+    credentials = await load_source_credentials(db, run.user_id, envelope)
+
     inp = EngineInput(
         run_id=str(run.id),
         tenant_id=str(run.user_id),
         profile=spec,
         resumes=resumes,
         enabled_sources=list(profile.enabled_sources),
-        credentials=[],  # per-site credentials arrive in Phase 4.6
+        credentials=credentials,
         limits=EngineLimits(),
     )
     return inp, known
