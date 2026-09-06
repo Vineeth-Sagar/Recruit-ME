@@ -39,6 +39,22 @@ export interface JobProfile {
   updated_at: string;
 }
 
+export type CredentialSite = "linkedin" | "indeed" | "glassdoor" | "wellfound";
+export type CredentialAuthType = "cookie" | "api_key" | "session";
+export type CredentialStatus = "unverified" | "valid" | "invalid" | "expired";
+
+export interface SiteCredential {
+  id: string;
+  site: CredentialSite;
+  auth_type: CredentialAuthType;
+  status: CredentialStatus;
+  label: string;
+  last_verified_at: string | null;
+  verify_error: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export type ResumeStatus = "uploaded" | "parsing" | "parsed" | "failed";
 
 export interface ResumeParse {

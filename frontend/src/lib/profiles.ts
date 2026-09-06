@@ -9,6 +9,12 @@ export const profilesApi = {
     apiFetch<JobProfile>("/job-profiles", { method: "POST", json: body, auth: true }),
   update: (id: string, body: Partial<ProfileForm>) =>
     apiFetch<JobProfile>(`/job-profiles/${id}`, { method: "PATCH", json: body, auth: true }),
+  setBig3Optin: (id: string, big3_optin: boolean) =>
+    apiFetch<JobProfile>(`/job-profiles/${id}`, {
+      method: "PATCH",
+      json: { big3_optin },
+      auth: true,
+    }),
   remove: (id: string) =>
     apiFetch<void>(`/job-profiles/${id}`, { method: "DELETE", auth: true }),
   activate: (id: string) =>

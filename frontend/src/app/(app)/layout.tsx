@@ -12,7 +12,7 @@ const NAV = [
   { href: "/profiles", label: "Job profiles", ready: true },
   { href: "/runs", label: "Runs", ready: true },
   { href: "/matches", label: "Matches", ready: true },
-  { href: "/settings", label: "Settings", ready: false },
+  { href: "/settings", label: "Settings", ready: true },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
