@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from ..models.run import JobMatch, MatchStatus
 from ..schemas.common import Page
 from ..schemas.run import MatchOut, MatchPatchIn
 from ..security.deps import CurrentUser
+from ..services.report_service import XLSX_MIME, build_matches_xlsx
 
 router = APIRouter(prefix="/matches", tags=["matches"])
 
@@ -58,6 +59,26 @@ async def list_matches(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.get("/export.xlsx")
+async def export_matches(
+    user: CurrentUser,
+    db: DbDep,
+    run: uuid.UUID | None = None,
+    profile: uuid.UUID | None = None,
+    match_status: Annotated[MatchStatus | None, Query(alias="status")] = None,
+    min_match: Annotated[int, Query(ge=0, le=100)] = 0,
+    q: str | None = None,
+) -> Response:
+    data = await build_matches_xlsx(
+        db, user.id, run=run, profile=profile, match_status=match_status, min_match=min_match, q=q
+    )
+    return Response(
+        content=data,
+        media_type=XLSX_MIME,
+        headers={"Content-Disposition": 'attachment; filename="recruit-me-matches.xlsx"'},
     )
 
 
