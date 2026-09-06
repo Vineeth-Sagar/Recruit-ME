@@ -11,6 +11,7 @@ from .config import get_settings
 from .errors import AppError, app_error_handler
 from .middleware import RequestContextMiddleware
 from .routers import (
+    account,
     admin,
     auth,
     dashboard,
@@ -19,6 +20,7 @@ from .routers import (
     me,
     resumes,
     runs,
+    site_credentials,
 )
 
 logging.basicConfig(
@@ -45,6 +47,8 @@ def create_app() -> FastAPI:
     api_prefix = "/api/v1"
     app.include_router(auth.router, prefix=api_prefix)
     app.include_router(me.router, prefix=api_prefix)
+    app.include_router(account.router, prefix=api_prefix)
+    app.include_router(site_credentials.router, prefix=api_prefix)
     app.include_router(job_profiles.router, prefix=api_prefix)
     app.include_router(resumes.router, prefix=api_prefix)
     app.include_router(runs.router, prefix=api_prefix)

@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_model: str = "nvidia/nemotron-3-super-120b-a12b:free"
 
+    # Site-credential encryption. Dev falls back to an all-zero key.
+    credential_master_key: str = ""  # base64, 32 bytes -> version 1
+    credential_master_keys: str = ""  # "1:<b64>,2:<b64>" for rotation
+    credential_key_version: int = 1
+
     # Upload limits
     max_resume_bytes: int = 10 * 1024 * 1024
 

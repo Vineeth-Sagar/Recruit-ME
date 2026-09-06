@@ -20,6 +20,7 @@ class ObjectStore(Protocol):
     async def put(self, key: str, data: bytes, *, content_type: str) -> None: ...
     async def get(self, key: str) -> bytes: ...
     async def delete(self, key: str) -> None: ...
+    async def delete_prefix(self, prefix: str) -> int: ...
 
 
 class InMemoryObjectStore:
@@ -37,6 +38,12 @@ class InMemoryObjectStore:
 
     async def delete(self, key: str) -> None:
         self._objects.pop(key, None)
+
+    async def delete_prefix(self, prefix: str) -> int:
+        victims = [k for k in self._objects if k.startswith(prefix)]
+        for k in victims:
+            del self._objects[k]
+        return len(victims)
 
 
 class S3ObjectStore:
@@ -72,6 +79,20 @@ class S3ObjectStore:
 
     async def delete(self, key: str) -> None:
         await asyncio.to_thread(self._client.delete_object, Bucket=self._bucket, Key=key)
+
+    async def delete_prefix(self, prefix: str) -> int:
+        def _run() -> int:
+            paginator = self._client.get_paginator("list_objects_v2")
+            removed = 0
+            for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+                keys = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+                if not keys:
+                    continue
+                self._client.delete_objects(Bucket=self._bucket, Delete={"Objects": keys})
+                removed += len(keys)
+            return removed
+
+        return await asyncio.to_thread(_run)
 
 
 def build_object_store(settings: Settings) -> ObjectStore:

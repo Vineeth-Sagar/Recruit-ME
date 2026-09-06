@@ -20,6 +20,7 @@ class JobProfileIn(BaseModel):
     watchlist_companies: list[str] = Field(default_factory=list)
     min_match_percent: int = Field(default=50, ge=0, le=100)
     min_salary: int = Field(default=0, ge=0)
+    big3_optin: bool = False
     schedule_cron: str | None = Field(default=None, max_length=120)
     timezone: str = Field(default="Asia/Kolkata", max_length=64)
 
@@ -36,6 +37,7 @@ class JobProfilePatch(BaseModel):
     watchlist_companies: list[str] | None = None
     min_match_percent: int | None = Field(default=None, ge=0, le=100)
     min_salary: int | None = Field(default=None, ge=0)
+    big3_optin: bool | None = None
     schedule_cron: str | None = Field(default=None, max_length=120)
     timezone: str | None = Field(default=None, max_length=64)
 

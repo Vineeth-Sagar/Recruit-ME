@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 
 from ..config import Settings
 from ..errors import AuthError
+from ..schemas.account import ConfirmEmailChangeIn
 from ..schemas.auth import (
     ForgotPasswordIn,
     LoginIn,
@@ -17,7 +18,8 @@ from ..schemas.auth import (
     VerifyEmailIn,
 )
 from ..schemas.user import UserOut
-from ..security.deps import get_auth_service, get_settings_dep
+from ..security.deps import get_account_service, get_auth_service, get_settings_dep
+from ..services.account_service import AccountService
 from ..services.auth_service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -28,6 +30,7 @@ REFRESH_COOKIE = "recruit_refresh"
 REFRESH_PATH = "/"
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
 SettingsDep = Annotated[Settings, Depends(get_settings_dep)]
 
 
@@ -101,3 +104,11 @@ async def forgot(body: ForgotPasswordIn, svc: AuthServiceDep) -> None:
 @router.post("/reset", status_code=status.HTTP_204_NO_CONTENT)
 async def reset(body: ResetPasswordIn, svc: AuthServiceDep) -> None:
     await svc.finish_password_reset(body.token, body.password)
+
+
+@router.post("/confirm-email-change", status_code=status.HTTP_204_NO_CONTENT)
+async def confirm_email_change(
+    body: ConfirmEmailChangeIn, response: Response, svc: AccountServiceDep, settings: SettingsDep
+) -> None:
+    await svc.confirm_email_change(body.token)
+    _clear_refresh_cookie(response, settings)

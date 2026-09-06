@@ -13,10 +13,12 @@ from .ports.llm_openrouter import OpenRouterLLM
 from .scheduler import enqueue_due_runs
 from .tasks.execute_run import execute_run
 from .tasks.parse_resume import parse_resume
+from .tasks.verify_credential import verify_credential
 
 
 async def on_startup(ctx: dict) -> None:
     from recruit_api.db import get_sessionmaker
+    from recruit_api.security.crypto import build_envelope
     from recruit_api.services.email_service import build_email_sender
     from recruit_api.services.object_store import build_object_store
 
@@ -25,6 +27,7 @@ async def on_startup(ctx: dict) -> None:
     ctx["sessionmaker"] = get_sessionmaker()
     ctx["object_store"] = build_object_store(s)
     ctx["email_sender"] = build_email_sender(s)
+    ctx["envelope"] = build_envelope(s)
     ctx["llm"] = OpenRouterLLM(s.openrouter_api_key, s.openrouter_model)
     ctx["llm_model"] = s.openrouter_model
     ctx["rate_limiter"] = RedisTokenBucket(ctx["redis"])
@@ -37,7 +40,7 @@ async def on_startup(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = [parse_resume, execute_run]
+    functions = [parse_resume, execute_run, verify_credential]
     cron_jobs = [cron(enqueue_due_runs, second=0, run_at_startup=False)]
     on_startup = on_startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
