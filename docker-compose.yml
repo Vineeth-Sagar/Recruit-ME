@@ -1,10 +1,43 @@
-# Local development infrastructure. Application services (api, worker, scheduler,
-# web) are added in Phase 4.7 — for now this brings up the three stateful
-# backends the rest of the build targets.
+# Full local stack: postgres, redis, minio (+ one-shot bucket setup), a one-shot
+# migrate job, the API, the arq worker, the scheduler, and the Next.js web app.
 #
-# Host ports are deliberately offset (15432 / 16379 / 19000-19001) so this stack
-# coexists with other local projects using the default 5432 / 6379 / 9000.
+#   cp .env.example .env
+#   docker compose up -d --build      # or: make up
+#   docker compose run --rm seed      # or: make seed
+#   open http://localhost:3000        # log in as demo@recruit.me / demo-password-123
+#
+# Host ports are offset (15432 / 16379 / 19000-19001 / 8000 / 3000) so this stack
+# coexists with other local projects. For hot-reload dev, also copy
+# docker-compose.override.yml.example -> docker-compose.override.yml.
 name: recruit-me
+
+# Shared wiring for every Python service. `.env` supplies secrets and provider
+# config; these values point the app at the in-network services and win over it.
+x-app-env: &app-env
+  ENV: ${ENV:-dev}
+  DATABASE_URL: postgresql+asyncpg://recruit:recruit@postgres:5432/recruit
+  REDIS_URL: redis://redis:6379/0
+  S3_ENDPOINT: http://minio:9000
+  S3_BUCKET: recruit
+  S3_ACCESS_KEY: recruit
+  S3_SECRET_KEY: recruit-secret
+  S3_REGION: us-east-1
+
+# `api` is the only service that builds recruit-me-api; the one-shots reuse it.
+x-api-service: &api-service
+  image: recruit-me-api
+  env_file:
+    - path: .env
+      required: false
+  environment: *app-env
+
+# `worker` is the only service that builds recruit-me-worker; `scheduler` reuses it.
+x-worker-service: &worker-service
+  image: recruit-me-worker
+  env_file:
+    - path: .env
+      required: false
+  environment: *app-env
 
 services:
   postgres:
@@ -17,6 +50,7 @@ services:
       - "15432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U recruit -d recruit"]
       interval: 5s
@@ -63,6 +97,108 @@ services:
       mc mb --ignore-existing local/recruit &&
       echo 'bucket ready';
       "
+
+  api:
+    <<: *api-service
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot: bring the schema to head, then exit. `api`/`worker` wait on this.
+  migrate:
+    <<: *api-service
+    command: ["alembic", "-c", "backend/alembic.ini", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # One-shot: demo tenant + profile + résumé + 3 runs + ~40 matches.
+  #   docker compose run --rm seed
+  seed:
+    <<: *api-service
+    command: ["python", "scripts/seed.py"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    profiles: ["tools"]
+    restart: "no"
+
+  worker:
+    <<: *worker-service
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    command: ["arq", "recruit_worker.settings.WorkerSettings"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  scheduler:
+    <<: *worker-service
+    command: ["arq", "recruit_worker.settings.SchedulerSettings"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        API_PROXY_TARGET: http://api:8000
+    image: recruit-me-web
+    # next.config.mjs also re-reads this when the standalone server boots.
+    environment:
+      API_PROXY_TARGET: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://localhost:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
 volumes:
   pgdata:

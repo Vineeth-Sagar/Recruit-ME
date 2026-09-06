@@ -1,0 +1,36 @@
+# Keep the build context lean. Each Dockerfile copies only what it needs on top.
+.git
+.github
+.venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# Node / Next — the web image builds from ./frontend as its own context
+frontend
+**/node_modules
+**/*.tsbuildinfo
+
+# Local state / secrets
+.env
+.env.*
+!.env.example
+docker-compose.override.yml
+.pgdata
+.miniodata
+*.log
+
+# Editor / OS
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+
+# Docs and scratch (images don't need them)
+docs
+*.md
+!README.md
