@@ -20,6 +20,7 @@ from ..services.email_service import EmailSender, build_email_sender
 from ..services.job_profile_service import JobProfileService
 from ..services.object_store import ObjectStore, build_object_store
 from ..services.resume_service import ResumeService
+from ..services.run_service import RunService
 from .jwt import decode_access_token
 
 _bearer = HTTPBearer(auto_error=False)
@@ -62,6 +63,13 @@ def get_resume_service(
     settings: Annotated[Settings, Depends(get_settings_dep)],
 ) -> ResumeService:
     return ResumeService(db, store, enqueue, max_bytes=settings.max_resume_bytes)
+
+
+def get_run_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    enqueue: Annotated[Enqueue, Depends(get_enqueue_dep)],
+) -> RunService:
+    return RunService(db, enqueue)
 
 
 async def get_current_user(

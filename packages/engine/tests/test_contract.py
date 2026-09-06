@@ -1,12 +1,8 @@
-"""
-Phase 4.1 ships the engine contract as scaffolding: the types build, the ports
-are Protocols, and run_engine exists with the right shape but is not implemented
-until Phase 4.4.
-"""
+"""The engine contract: types build, ports are Protocols, run_engine keeps the
+agreed signature. Its behaviour is covered in test_engine.py."""
 
 import inspect
 
-import pytest
 from recruit_engine import (
     EngineInput,
     EngineResult,
@@ -58,21 +54,6 @@ def test_run_engine_signature_is_the_agreed_contract():
         "on_step",
     ]
     assert inspect.iscoroutinefunction(run_engine)
-
-
-async def test_run_engine_is_not_implemented_until_phase_4_4():
-    class _Stub:
-        def __getattr__(self, _):  # stand in for any port method
-            raise AssertionError("ports must not be touched by the stub")
-
-    with pytest.raises(NotImplementedError):
-        await run_engine(
-            _make_input(),
-            seen=_Stub(),
-            rate_limiter=_Stub(),
-            llm=_Stub(),
-            clock=_Stub(),
-        )
 
 
 def test_ports_are_runtime_checkable_protocols():

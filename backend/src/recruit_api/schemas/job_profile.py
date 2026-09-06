@@ -5,12 +5,15 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+_DEFAULT_SOURCES = ["wellfound", "yc", "hackernews", "jobspy"]
+
 
 class JobProfileIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     target_roles: list[str] = Field(default_factory=list)
     locations: list[str] = Field(default_factory=list)
     job_types: list[str] = Field(default_factory=list)
+    enabled_sources: list[str] = Field(default_factory=lambda: list(_DEFAULT_SOURCES))
     must_have_skills: list[str] = Field(default_factory=list)
     nice_to_have_skills: list[str] = Field(default_factory=list)
     exclude_companies: list[str] = Field(default_factory=list)
@@ -26,6 +29,7 @@ class JobProfilePatch(BaseModel):
     target_roles: list[str] | None = None
     locations: list[str] | None = None
     job_types: list[str] | None = None
+    enabled_sources: list[str] | None = None
     must_have_skills: list[str] | None = None
     nice_to_have_skills: list[str] | None = None
     exclude_companies: list[str] | None = None
@@ -46,6 +50,7 @@ class JobProfileOut(BaseModel):
     target_roles: list[str]
     locations: list[str]
     job_types: list[str]
+    enabled_sources: list[str]
     must_have_skills: list[str]
     nice_to_have_skills: list[str]
     exclude_companies: list[str]

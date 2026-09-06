@@ -11,6 +11,9 @@ needs is passed in as an ``EngineInput`` plus a set of injected ports
 The same engine build runs for every tenant — all per-user variation is data.
 """
 
+from .dedupe import compute_external_hash
+from .engine import run_engine
+from .matching import batch_match
 from .types import (
     EngineInput,
     EngineLimits,
@@ -33,4 +36,7 @@ __all__ = [
     "ProfileSpec",
     "ResumeParse",
     "SourceCredential",
+    "run_engine",
+    "batch_match",
+    "compute_external_hash",
 ]

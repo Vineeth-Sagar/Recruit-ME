@@ -166,6 +166,61 @@ def worker_ctx(shared_sessionmaker, object_store):
     }
 
 
+class _CaptureEmail:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, str]] = []
+
+    async def send(self, *, to: str, subject: str, html: str) -> None:
+        self.sent.append({"to": to, "subject": subject, "html": html})
+
+
+class _NoopRateLimiter:
+    def __init__(self) -> None:
+        self.keys: list[str] = []
+
+    async def acquire(self, key: str) -> None:
+        self.keys.append(key)
+
+
+@pytest.fixture
+def execute_run_ctx(shared_sessionmaker, object_store):
+    """ctx for calling recruit_worker.tasks.execute_run directly. Fields are
+    swappable per test (llm, object_store, email_sender, rate_limiter)."""
+
+    class _CannedLLM:
+        reply = "{}"
+
+        async def complete(self, prompt: str, *, temperature: float = 0.0) -> str:
+            return self.reply
+
+    return {
+        "sessionmaker": shared_sessionmaker,
+        "object_store": object_store,
+        "email_sender": _CaptureEmail(),
+        "rate_limiter": _NoopRateLimiter(),
+        "llm": _CannedLLM(),
+        "llm_model": "test-model",
+        "worker_id": "test-worker",
+    }
+
+
+@pytest_asyncio.fixture
+async def redis_client():
+    """Real Redis (compose on 16379 db 1, or TEST_REDIS_URL), flushed per test."""
+    import os
+
+    from redis.asyncio import Redis
+
+    url = os.environ.get("TEST_REDIS_URL", "redis://localhost:16379/1")
+    client = Redis.from_url(url, decode_responses=False)
+    await client.flushdb()
+    try:
+        yield client
+    finally:
+        await client.flushdb()
+        await client.aclose()
+
+
 # ── PDF byte helpers ─────────────────────────────────────────────────────
 
 
@@ -230,3 +285,17 @@ async def auth_headers(client: AsyncClient, make_user):
         return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
     return _for
+
+
+@pytest_asyncio.fixture
+async def login(client: AsyncClient, make_user):
+    """(email) -> (headers, User). Use user.id (a real UUID) when building rows."""
+
+    async def _login(email: str, password: str = "password123", **kw):
+        user = await make_user(email, password, **kw)
+        resp = await client.post("/api/v1/auth/login", json={"email": email, "password": password})
+        assert resp.status_code == 200, resp.text
+        headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+        return headers, user
+
+    return _login

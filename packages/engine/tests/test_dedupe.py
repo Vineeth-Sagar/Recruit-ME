@@ -1,53 +1,30 @@
-"""
-Unit tests for recruit_engine.dedupe  (← job_hunter/deduplicator.py).
+"""compute_external_hash — stable, case/whitespace-insensitive job fingerprint."""
 
-Each test runs against a throwaway SQLite file via the `_isolated_db` fixture,
-so the suite never touches any real dedup state.
-"""
-
-import pytest
-from recruit_engine import dedupe
+from recruit_engine.dedupe import compute_external_hash
+from recruit_engine.types import JobPosting
 
 
-@pytest.fixture(autouse=True)
-def _isolated_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(dedupe, "DB_PATH", tmp_path / "seen_jobs_test.db")
+def _job(**kw) -> JobPosting:
+    base = {"source": "Wellfound", "company": "Acme", "title": "SDE Intern"}
+    base.update(kw)
+    return JobPosting(**base)
 
 
-def test_job_hash_is_case_and_whitespace_insensitive():
-    job1 = {"company": "Acme Corp", "title": "SDE Intern", "source": "LinkedIn"}
-    job2 = {"company": " acme corp ", "title": " sde intern ", "source": "linkedin"}
-    assert dedupe._job_hash(job1) == dedupe._job_hash(job2)
+def test_hash_is_case_and_whitespace_insensitive():
+    a = _job(source="Wellfound", company="Acme Corp", title="SDE Intern")
+    b = _job(source="  wellfound ", company=" ACME corp", title="sde intern ")
+    assert compute_external_hash(a) == compute_external_hash(b)
 
 
-def test_job_hash_differs_for_different_jobs():
-    job1 = {"company": "Acme", "title": "SDE", "source": "LinkedIn"}
-    job2 = {"company": "Acme", "title": "PM", "source": "LinkedIn"}
-    assert dedupe._job_hash(job1) != dedupe._job_hash(job2)
+def test_hash_differs_for_different_jobs():
+    assert compute_external_hash(_job(title="SDE")) != compute_external_hash(_job(title="PM"))
+    assert compute_external_hash(_job(company="Acme")) != compute_external_hash(
+        _job(company="Globex")
+    )
+    assert compute_external_hash(_job(source="YC Jobs")) != compute_external_hash(_job(source="HN"))
 
 
-def test_filter_new_jobs_then_mark_seen_roundtrip():
-    jobs = [
-        {"company": "Acme", "title": "SDE", "source": "LinkedIn"},
-        {"company": "Globex", "title": "PM", "source": "Indeed"},
-    ]
-
-    assert dedupe.filter_new_jobs(jobs) == jobs
-
-    dedupe.mark_jobs_seen(jobs)
-    assert dedupe.filter_new_jobs(jobs) == []
-
-    fresh = [{"company": "Initech", "title": "QA", "source": "Wellfound"}]
-    assert dedupe.filter_new_jobs(jobs + fresh) == fresh
-
-
-def test_get_seen_count_reflects_marked_jobs():
-    assert dedupe.get_seen_count() == 0
-    dedupe.mark_jobs_seen([{"company": "Acme", "title": "SDE", "source": "LinkedIn"}])
-    assert dedupe.get_seen_count() == 1
-
-
-def test_clear_old_entries_does_not_remove_todays_entries():
-    dedupe.mark_jobs_seen([{"company": "Acme", "title": "SDE", "source": "LinkedIn"}])
-    dedupe.clear_old_entries(days=60)
-    assert dedupe.get_seen_count() == 1
+def test_hash_is_deterministic_and_hex():
+    h = compute_external_hash(_job())
+    assert h == compute_external_hash(_job())
+    assert len(h) == 40 and all(c in "0123456789abcdef" for c in h)

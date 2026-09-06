@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
 from .errors import AppError, app_error_handler
 from .middleware import RequestContextMiddleware
-from .routers import admin, auth, job_profiles, me, resumes
+from .routers import admin, auth, job_profiles, matches, me, resumes, runs
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +38,8 @@ def create_app() -> FastAPI:
     app.include_router(me.router, prefix=api_prefix)
     app.include_router(job_profiles.router, prefix=api_prefix)
     app.include_router(resumes.router, prefix=api_prefix)
+    app.include_router(runs.router, prefix=api_prefix)
+    app.include_router(matches.router, prefix=api_prefix)
     app.include_router(admin.router, prefix=api_prefix)
 
     @app.get("/health", tags=["meta"])

@@ -9,6 +9,9 @@ dependencies = [
     "arq>=0.26",
     "boto3>=1.35",
     "openai>=1.30",
+    "croniter>=3.0",
+    "redis>=5.0",
+    "tzdata>=2024.1",
 ]
 
 [tool.uv.sources]

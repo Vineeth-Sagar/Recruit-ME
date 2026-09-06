@@ -29,6 +29,12 @@ class JobProfile(Base, TimestampMixin):
     target_roles: Mapped[list[str]] = _str_array()
     locations: Mapped[list[str]] = _str_array()
     job_types: Mapped[list[str]] = _str_array()
+    enabled_sources: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=lambda: ["wellfound", "yc", "hackernews", "jobspy"],
+        server_default="{wellfound,yc,hackernews,jobspy}",
+    )
     must_have_skills: Mapped[list[str]] = _str_array()
     nice_to_have_skills: Mapped[list[str]] = _str_array()
     exclude_companies: Mapped[list[str]] = _str_array()
