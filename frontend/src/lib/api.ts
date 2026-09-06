@@ -2,6 +2,7 @@ const BASE = "/api/v1";
 
 let accessToken: string | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
+let lastRefreshAt = 0;
 
 export function setAccessToken(token: string | null) {
   accessToken = token;
@@ -39,8 +40,13 @@ async function raw(path: string, opts: FetchOpts): Promise<Response> {
   });
 }
 
-/** Ask the API for a fresh access token using the httpOnly refresh cookie. */
+/** Ask the API for a fresh access token using the httpOnly refresh cookie.
+ *  The refresh token rotates on every call, so near-simultaneous 401s must not
+ *  each fire their own refresh: concurrent callers share `refreshInFlight`, and
+ *  for a few seconds after a success we reuse the token we just got rather than
+ *  rotating again (which would replay a revoked token -> reuse detection). */
 export async function refreshAccessToken(): Promise<string | null> {
+  if (accessToken && Date.now() - lastRefreshAt < 3000) return accessToken;
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       const resp = await raw("/auth/refresh", { method: "POST" });
@@ -53,6 +59,7 @@ export async function refreshAccessToken(): Promise<string | null> {
       }
       const data = (await resp.json()) as { access_token: string };
       accessToken = data.access_token;
+      lastRefreshAt = Date.now();
       return accessToken;
     })().finally(() => {
       refreshInFlight = null;

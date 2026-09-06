@@ -63,3 +63,94 @@ export interface Resume {
   created_at: string;
   parse: ResumeParse | null;
 }
+
+export interface Page<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export type RunTrigger = "manual" | "scheduled" | "api";
+export type RunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "partial"
+  | "failed"
+  | "cancelled";
+export type MatchStatus = "new" | "saved" | "applied" | "dismissed";
+
+export const TERMINAL_RUN_STATUSES: RunStatus[] = [
+  "succeeded",
+  "partial",
+  "failed",
+  "cancelled",
+];
+
+export interface RunStep {
+  name: string;
+  status: string;
+  detail: Record<string, unknown>;
+  at: string;
+}
+
+export interface RunSource {
+  source: string;
+  status: string;
+  jobs_found: number;
+  latency_ms: number;
+  error: string | null;
+}
+
+export interface RunOut {
+  id: string;
+  job_profile_id: string;
+  trigger: RunTrigger;
+  status: RunStatus;
+  attempt: number;
+  queued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  notified_at: string | null;
+  error_summary: string | null;
+  stats: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RunDetail extends RunOut {
+  steps: RunStep[];
+  sources: RunSource[];
+}
+
+export interface MatchOut {
+  id: string;
+  run_id: string | null;
+  job_profile_id: string | null;
+  source: string;
+  company: string;
+  title: string;
+  location: string;
+  url: string;
+  salary: string;
+  posted_date: string;
+  match_percentage: number;
+  matched_skills: string[];
+  missing_skills: string[];
+  why_fit: string;
+  urgency: string;
+  recommended_action: string;
+  status: MatchStatus;
+  applied_at: string | null;
+  created_at: string;
+}
+
+export interface DashboardSummary {
+  runs_30d: number;
+  last_run: { status: string; at: string } | null;
+  matches_total: number;
+  matches_new: number;
+  applied_count: number;
+  match_rate_series: { date: string; pct: number; count: number }[];
+  top_missing_skills: { skill: string; n: number }[];
+}
