@@ -1,0 +1,48 @@
+# Copy to docker-compose.override.yml (git-ignored) for hot-reload development.
+# Compose merges it automatically. Source is bind-mounted over the image and each
+# service runs its reloading entrypoint.
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   docker compose up
+
+services:
+  api:
+    command:
+      - "uvicorn"
+      - "recruit_api.main:app"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+      - "--reload"
+    volumes:
+      - ./backend:/app/backend
+      - ./worker:/app/worker
+      - ./packages:/app/packages
+
+  worker:
+    # arq --watch restarts the worker when a source file changes.
+    command: ["arq", "--watch", "/app", "recruit_worker.settings.WorkerSettings"]
+    volumes:
+      - ./backend:/app/backend
+      - ./worker:/app/worker
+      - ./packages:/app/packages
+
+  scheduler:
+    command: ["arq", "--watch", "/app", "recruit_worker.settings.SchedulerSettings"]
+    volumes:
+      - ./backend:/app/backend
+      - ./worker:/app/worker
+      - ./packages:/app/packages
+
+  web:
+    build:
+      target: deps
+    command: ["npm", "run", "dev"]
+    environment:
+      API_PROXY_TARGET: http://api:8000
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next

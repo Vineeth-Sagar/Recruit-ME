@@ -15,13 +15,29 @@ variation is data.
 
 ## Status
 
-Pre-code. Analysis, architecture, and the phased build plan are complete and
-approved. **Phase 4.1 (monorepo restructuring) is the next step.**
+All seven build phases are implemented. The stack runs end to end from a fresh
+clone.
 
 - Design doc: [`docs/architecture.html`](docs/architecture.html) — analysis of the
   original automation, the target architecture (diagrams + data model + execution
   model), the terms-of-service decisions, and the 7-phase build plan with file
   paths, key signatures, and per-phase verification.
+- Operations: [`docs/DEPLOY.md`](docs/DEPLOY.md) (compose + Kubernetes topology),
+  [`docs/RUNBOOK.md`](docs/RUNBOOK.md) (day-2).
+
+## Quickstart
+
+```bash
+cp .env.example .env          # dev-safe defaults; edit for anything real
+make up                       # build + start postgres, redis, minio, api, worker, scheduler, web
+make seed                     # demo tenant: demo@recruit.me / demo-password-123
+open http://localhost:3000
+```
+
+`make down` stops the stack (keeps data); `docker compose down -v` wipes it.
+For hot-reload development, `cp docker-compose.override.yml.example docker-compose.override.yml`
+first. Without Docker, `make infra` brings up just Postgres/Redis/MinIO and the
+services run from the uv workspace (`uv sync`, then `uv run …`).
 
 ## Planned architecture
 
