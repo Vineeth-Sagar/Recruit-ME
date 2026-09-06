@@ -1,4 +1,16 @@
-"""arq worker entrypoint:  arq recruit_worker.settings.WorkerSettings"""
+"""arq entrypoints.
+
+Two processes, one image:
+
+* ``arq recruit_worker.settings.WorkerSettings``    — drains the job queue.
+* ``arq recruit_worker.settings.SchedulerSettings`` — fires ``enqueue_due_runs``
+  once a minute and nothing else.
+
+They are split so the scheduler can run as a single replica (its cron must not
+fan out across every worker) while the job pool scales freely. ``enqueue_due_runs``
+is still idempotent — a per-profile Redis lock plus the ``sched:<id>:<date>``
+idempotency key — so an accidental second scheduler cannot double-book a run.
+"""
 
 from __future__ import annotations
 
@@ -39,10 +51,20 @@ async def on_startup(ctx: dict) -> None:
     ctx["enqueue"] = _enqueue
 
 
+_redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
+
+
 class WorkerSettings:
     functions = [parse_resume, execute_run, verify_credential]
-    cron_jobs = [cron(enqueue_due_runs, second=0, run_at_startup=False)]
     on_startup = on_startup
-    redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
+    redis_settings = _redis_settings
     max_jobs = 10
     job_timeout = 600
+
+
+class SchedulerSettings:
+    functions: list = []
+    cron_jobs = [cron(enqueue_due_runs, second=0, run_at_startup=False)]
+    on_startup = on_startup
+    redis_settings = _redis_settings
+    max_jobs = 1
