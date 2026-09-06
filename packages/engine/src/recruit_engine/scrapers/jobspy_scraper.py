@@ -38,6 +38,27 @@ def _normalize_job(row, source: str) -> dict:
     }
 
 
+_INDIA_HINTS = (
+    "india",
+    "bengaluru",
+    "bangalore",
+    "hyderabad",
+    "mumbai",
+    "pune",
+    "delhi",
+    "chennai",
+)
+
+
+def _country_for(locations: list[str]) -> str:
+    """Indeed needs a country. Derive it from the profile's locations instead of
+    assuming India; fall back to 'usa' (jobspy's own default)."""
+    joined = " ".join(locations).lower()
+    if any(h in joined for h in _INDIA_HINTS):
+        return "India"
+    return "usa"
+
+
 def scrape_jobspy(
     roles: list[str],
     locations: list[str],
@@ -47,7 +68,7 @@ def scrape_jobspy(
     """
     Scrape LinkedIn, Indeed, Glassdoor via python-jobspy.
     roles: list of job title search terms
-    locations: list of location strings from config
+    locations: list of location strings from the profile
     """
     try:
         # jobspy pulls pandas in transitively; both are the optional "jobspy" extra.
@@ -67,6 +88,7 @@ def scrape_jobspy(
         return []
 
     all_jobs: list[dict] = []
+    country = _country_for(locations)
 
     for role in roles:
         for loc_key in locations:
@@ -79,7 +101,7 @@ def scrape_jobspy(
                     location=search_loc,
                     results_wanted=results_per_role,
                     hours_old=48,  # Only last 48 hours
-                    country_indeed="India",
+                    country_indeed=country,
                 )
                 if df is not None and not df.empty:
                     for _, row in df.iterrows():
