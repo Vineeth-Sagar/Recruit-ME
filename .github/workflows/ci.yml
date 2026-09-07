@@ -62,9 +62,10 @@ jobs:
       - name: Types
         run: uv run mypy backend/src worker/src packages/engine/src
 
-      - name: Alembic round-trip
+      - name: Alembic round-trip + drift check
         run: |
           uv run alembic -c backend/alembic.ini upgrade head
+          uv run alembic -c backend/alembic.ini check
           uv run alembic -c backend/alembic.ini downgrade base
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres

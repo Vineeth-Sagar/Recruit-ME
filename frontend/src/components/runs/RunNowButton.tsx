@@ -25,6 +25,7 @@ export function RunNowButton() {
     onSuccess: (r) => {
       toast.success("Run started");
       qc.invalidateQueries({ queryKey: ["runs"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
       router.push(`/runs/${r.id}`);
     },
     onError: (e) =>

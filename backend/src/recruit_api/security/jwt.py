@@ -75,6 +75,13 @@ def decode_access_token(token: str) -> AccessClaims:
         raise AuthError("invalid or expired token") from exc
     if data.get("typ") != "access":
         raise AuthError("wrong token type")
-    return AccessClaims(
-        sub=data["sub"], role=data["role"], plan=data["plan"], jti=data["jti"], exp=data["exp"]
-    )
+    try:
+        return AccessClaims(
+            sub=data["sub"],
+            role=data["role"],
+            plan=data["plan"],
+            jti=data["jti"],
+            exp=data["exp"],
+        )
+    except KeyError as exc:
+        raise AuthError("token is missing a required claim") from exc

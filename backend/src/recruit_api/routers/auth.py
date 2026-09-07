@@ -19,8 +19,14 @@ from ..schemas.auth import (
 )
 from ..schemas.user import UserOut
 from ..security.deps import get_account_service, get_auth_service, get_settings_dep
+from ..security.ratelimit import rate_limit
 from ..services.account_service import AccountService
 from ..services.auth_service import AuthService
+
+# Per client IP. Fail-open, and disabled under env=test.
+_login_limit = rate_limit("login", limit=10, window_s=300)
+_signup_limit = rate_limit("signup", limit=5, window_s=3600)
+_forgot_limit = rate_limit("forgot", limit=5, window_s=3600)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -47,20 +53,32 @@ def _set_refresh_cookie(resp: Response, raw: str, settings: Settings) -> None:
 
 
 def _clear_refresh_cookie(resp: Response, settings: Settings) -> None:
-    resp.delete_cookie(REFRESH_COOKIE, path=REFRESH_PATH)
+    # Match the attributes the cookie was set with so every UA/proxy clears it.
+    resp.delete_cookie(
+        REFRESH_COOKIE,
+        path=REFRESH_PATH,
+        httponly=True,
+        secure=settings.is_prod,
+        samesite="lax",
+    )
 
 
 def _agent_ip(request: Request) -> tuple[str, str]:
     return request.headers.get("user-agent", ""), (request.client.host if request.client else "")
 
 
-@router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/signup",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_signup_limit)],
+)
 async def signup(body: SignupIn, svc: AuthServiceDep) -> UserOut:
     user = await svc.signup(body.email, body.password, body.full_name)
     return UserOut.model_validate(user)
 
 
-@router.post("/login", response_model=TokenOut)
+@router.post("/login", response_model=TokenOut, dependencies=[Depends(_login_limit)])
 async def login(
     body: LoginIn, request: Request, response: Response, svc: AuthServiceDep, settings: SettingsDep
 ) -> TokenOut:
@@ -96,7 +114,11 @@ async def verify_email(body: VerifyEmailIn, svc: AuthServiceDep) -> None:
     await svc.verify_email(body.token)
 
 
-@router.post("/forgot", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/forgot",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(_forgot_limit)],
+)
 async def forgot(body: ForgotPasswordIn, svc: AuthServiceDep) -> None:
     await svc.start_password_reset(body.email)
 

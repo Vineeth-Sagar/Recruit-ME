@@ -49,6 +49,7 @@ async def build_input(
                 )
             )
 
+    settings = get_settings()
     spec = ProfileSpec(
         profile_id=str(profile.id),
         target_roles=list(profile.target_roles),
@@ -59,12 +60,13 @@ async def build_input(
         nice_to_have_skills=list(profile.nice_to_have_skills),
         exclude_companies=list(profile.exclude_companies),
         watchlist_companies=list(profile.watchlist_companies),
-        big3_optin=profile.big3_optin,
+        # Effective opt-in: the profile flag AND the fleet-wide switch.
+        big3_optin=profile.big3_optin and settings.big3_enabled_global,
     )
 
     known = await load_known_hashes(db, run.user_id)
 
-    envelope = envelope or build_envelope(get_settings())
+    envelope = envelope or build_envelope(settings)
     credentials = await load_source_credentials(db, run.user_id, envelope)
 
     inp = EngineInput(

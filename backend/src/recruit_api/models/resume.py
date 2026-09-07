@@ -34,12 +34,15 @@ class Resume(Base, TimestampMixin):
     storage_key: Mapped[str] = mapped_column(String(512), nullable=False)
     content_sha256: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
-    mime: Mapped[str] = mapped_column(String(100), nullable=False, default="application/pdf")
+    mime: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="application/pdf", server_default="application/pdf"
+    )
 
     status: Mapped[ResumeStatus] = mapped_column(
         Enum(ResumeStatus, native_enum=False, length=20),
         nullable=False,
         default=ResumeStatus.uploaded,
+        server_default="uploaded",
     )
     parse_error: Mapped[str | None] = mapped_column(Text)
 
@@ -56,4 +59,4 @@ class ResumeParse(Base, TimestampMixin):
     skills: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, default=list, server_default="{}"
     )
-    tokens_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

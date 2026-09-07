@@ -34,6 +34,9 @@ def database_url() -> Iterator[str]:
 def _configure_settings(database_url: str) -> Iterator[None]:
     os.environ["ENV"] = "test"
     os.environ["DATABASE_URL"] = database_url
+    # Strict by default so reuse-detection tests are deterministic; the grace
+    # window has its own dedicated test that overrides this.
+    os.environ.setdefault("REFRESH_REUSE_GRACE_SECONDS", "0")
     from recruit_api.config import get_settings
 
     get_settings.cache_clear()
@@ -115,13 +118,20 @@ def enqueued() -> list[tuple]:
 @pytest_asyncio.fixture
 async def client(
     db_session: AsyncSession,
+    shared_sessionmaker,
     sent_emails: list[dict[str, str]],
     object_store,
     enqueued: list[tuple],
 ) -> AsyncIterator[AsyncClient]:
     from recruit_api.db import get_db
     from recruit_api.main import create_app
-    from recruit_api.security.deps import get_email_sender, get_enqueue_dep, get_object_store
+    from recruit_api.security.deps import (
+        get_email_sender,
+        get_enqueue_dep,
+        get_object_store,
+        get_run_service,
+    )
+    from recruit_api.services.run_service import RunService
 
     async def _override_get_db() -> AsyncIterator[AsyncSession]:
         yield db_session
@@ -138,6 +148,9 @@ async def client(
     app.dependency_overrides[get_email_sender] = lambda: _CaptureSender()
     app.dependency_overrides[get_object_store] = lambda: object_store
     app.dependency_overrides[get_enqueue_dep] = lambda: _fake_enqueue
+    app.dependency_overrides[get_run_service] = lambda: RunService(
+        db_session, _fake_enqueue, stream_sessionmaker=shared_sessionmaker
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ApiError } from "@/lib/api";
@@ -59,6 +59,11 @@ export function CredentialCard({
   const [secretText, setSecretText] = useState("");
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["site-credentials"] });
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const deferInvalidate = () => {
+    timers.current.push(setTimeout(invalidate, 2500));
+  };
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   const save = useMutation({
     mutationFn: (body: CredentialInput) => credentialsApi.put(site, body),
@@ -67,7 +72,7 @@ export function CredentialCard({
       setSecretText("");
       setOpen(false);
       invalidate();
-      setTimeout(invalidate, 2500);
+      deferInvalidate();
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Could not save the credential"),
   });
@@ -76,7 +81,7 @@ export function CredentialCard({
     mutationFn: () => credentialsApi.verify(site),
     onSuccess: () => {
       toast.success("Re-check queued");
-      setTimeout(invalidate, 2500);
+      deferInvalidate();
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Could not queue a re-check"),
   });

@@ -12,7 +12,8 @@ export const profileSchema = z.object({
   exclude_companies: z.array(z.string()),
   watchlist_companies: z.array(z.string()),
   min_match_percent: z.coerce.number().int().min(0).max(100),
-  min_salary: z.coerce.number().int().min(0),
+  // Postgres int4 ceiling — a larger value 500s on save.
+  min_salary: z.coerce.number().int().min(0).max(2_000_000_000),
   schedule_cron: z.string().max(120).nullable(),
   timezone: z.string().min(1).max(64),
 });

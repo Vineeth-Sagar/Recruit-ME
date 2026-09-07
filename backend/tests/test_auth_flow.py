@@ -75,6 +75,27 @@ async def test_full_auth_lifecycle(client, sent_emails):
     assert (await client.post(REFRESH)).status_code == 401
 
 
+async def test_concurrent_double_refresh_is_tolerated(client, auth_headers, monkeypatch):
+    """Within the grace window, replaying a just-rotated token (two tabs both
+    refreshing) continues the chain instead of nuking the family."""
+    from recruit_api.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "refresh_reuse_grace_seconds", 30)
+
+    await auth_headers("race@example.com")
+    stale = client.cookies["recruit_refresh"]
+    assert (await client.post(REFRESH)).status_code == 200  # tab A rotates
+    fresh = client.cookies["recruit_refresh"]
+
+    # tab B replays the token it still had -> tolerated, new token issued
+    r = await client.post(REFRESH, cookies={"recruit_refresh": stale})
+    assert r.status_code == 200
+    assert client.cookies["recruit_refresh"] not in (stale, fresh)
+
+    # tab A can still refresh — no family-wide revocation happened
+    assert (await client.post(REFRESH, cookies={"recruit_refresh": fresh})).status_code == 200
+
+
 async def test_login_rejects_bad_password(client, make_user):
     await make_user("bob@example.com", "correcthorse")
     r = await client.post(LOGIN, json={"email": "bob@example.com", "password": "wrong"})

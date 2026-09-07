@@ -171,6 +171,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
@@ -179,10 +181,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        API_PROXY_TARGET: http://api:8000
     image: recruit-me-web
-    # next.config.mjs also re-reads this when the standalone server boots.
+    # Read at runtime by the /api/* proxy route handler.
     environment:
       API_PROXY_TARGET: http://api:8000
     ports:

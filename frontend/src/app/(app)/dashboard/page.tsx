@@ -11,7 +11,10 @@ import { RunNowButton } from "@/components/runs/RunNowButton";
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { data: summary } = useQuery({ queryKey: ["dashboard-summary"], queryFn: dashboardApi.summary });
+  const { data: summary, isError: summaryError } = useQuery({
+    queryKey: ["dashboard-summary"],
+    queryFn: dashboardApi.summary,
+  });
   const { data: latest } = useQuery({
     queryKey: ["matches", { page_size: 5 }],
     queryFn: () => matchesApi.list({ page_size: 5 }),
@@ -67,6 +70,8 @@ export default function DashboardPage() {
                 labels={summary.match_rate_series.map((d) => `${d.date}: ${d.pct}%`)}
                 ariaLabel="14-day average match percentage"
               />
+            ) : summaryError ? (
+              <p className="text-sm text-muted-foreground">Couldn&apos;t load the summary.</p>
             ) : (
               <div className="h-11 animate-pulse rounded bg-muted" />
             )}

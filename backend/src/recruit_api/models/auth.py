@@ -25,8 +25,10 @@ class RefreshToken(Base, TimestampMixin):
     rotated_from_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("refresh_tokens.id", ondelete="SET NULL")
     )
-    user_agent: Mapped[str] = mapped_column(String(400), default="", nullable=False)
-    ip: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    user_agent: Mapped[str] = mapped_column(
+        String(400), default="", server_default="", nullable=False
+    )
+    ip: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
 
     @property
     def is_active(self) -> bool:

@@ -111,3 +111,5 @@ class EngineResult:
     missing_skills_tally: dict[str, int] = field(default_factory=dict)
     report_bytes: bytes | None = None
     ai_degraded: bool = False
+    # Non-fatal conditions worth surfacing on the run (e.g. no parsed résumé).
+    warnings: list[str] = field(default_factory=list)

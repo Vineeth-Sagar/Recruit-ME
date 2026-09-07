@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-import { apiFetch, refreshAccessToken, setAccessToken } from "@/lib/api";
+import { ApiError, apiFetch, refreshAccessToken, setAccessToken } from "@/lib/api";
 import type { TokenOut, UserOut } from "@/lib/types";
 
 interface AuthState {
@@ -23,17 +23,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function loadUser() {
     try {
       setUser(await apiFetch<UserOut>("/me", { auth: true }));
-    } catch {
-      setUser(null);
+    } catch (e) {
+      // Only a genuine auth failure clears the session. A network blip / 5xx /
+      // non-JSON proxy error must not eject the user mid-session.
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        setUser(null);
+      }
     }
   }
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const token = await refreshAccessToken();
-      if (token) await loadUser();
-      setLoading(false);
+      if (!cancelled && token) await loadUser();
+      if (!cancelled) setLoading(false);
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const value: AuthState = {

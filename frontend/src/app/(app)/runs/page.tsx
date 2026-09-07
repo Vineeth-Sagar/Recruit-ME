@@ -21,7 +21,10 @@ export default function RunsPage() {
     queryFn: () => runsApi.list({ page_size: 50 }),
     refetchInterval: (q) => {
       const items = q.state.data?.items ?? [];
-      return items.some((r) => !TERMINAL_RUN_STATUSES.includes(r.status)) ? 2000 : false;
+      const active = items.some((r) => !TERMINAL_RUN_STATUSES.includes(r.status));
+      // Cap the poll so a crashed worker (run stuck non-terminal) doesn't
+      // poll every 2s indefinitely for anyone with this page open.
+      return active && q.state.dataUpdateCount < 150 ? 2000 : false;
     },
   });
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 
-import { ApiError } from "@/lib/api";
+import { ApiError, setAccessToken } from "@/lib/api";
 import { accountApi } from "@/lib/settings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,7 +35,12 @@ function ConfirmInner() {
     }
     accountApi
       .confirmEmailChange(token)
-      .then(() => setState("ok"))
+      .then(() => {
+        // The backend revoked every session and cleared the cookie; drop the
+        // in-memory access token too.
+        setAccessToken(null);
+        setState("ok");
+      })
       .catch((e) => {
         setState("error");
         setMessage(e instanceof ApiError ? e.message : "The email change could not be confirmed.");

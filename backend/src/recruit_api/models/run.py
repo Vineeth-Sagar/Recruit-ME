@@ -50,7 +50,9 @@ class MatchStatus(enum.StrEnum):
 
 class Run(Base, TimestampMixin):
     __tablename__ = "runs"
-    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_runs_idempotency_key"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_runs_user_idempotency_key"),
+    )
 
     id: Mapped[uuid.UUID] = uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -64,15 +66,17 @@ class Run(Base, TimestampMixin):
     )
 
     trigger: Mapped[RunTrigger] = mapped_column(
-        String(16), default=RunTrigger.manual, nullable=False
+        String(16), default=RunTrigger.manual, server_default="manual", nullable=False
     )
     status: Mapped[RunStatus] = mapped_column(
-        String(16), default=RunStatus.queued, index=True, nullable=False
+        String(16), default=RunStatus.queued, server_default="queued", index=True, nullable=False
     )
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
 
-    attempt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    max_attempts: Mapped[int] = mapped_column(
+        Integer, default=3, server_default="3", nullable=False
+    )
 
     queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -82,7 +86,7 @@ class Run(Base, TimestampMixin):
     worker_id: Mapped[str | None] = mapped_column(String(120))
     report_key: Mapped[str | None] = mapped_column(String(512))
     error_summary: Mapped[str | None] = mapped_column(Text)
-    stats: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    stats: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
 
     @property
     def is_terminal(self) -> bool:
@@ -98,7 +102,7 @@ class RunStep(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
-    detail: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    detail: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -112,8 +116,8 @@ class RunSource(Base, TimestampMixin):
     )
     source: Mapped[str] = mapped_column(String(40), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
-    jobs_found: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    latency_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    jobs_found: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     error: Mapped[str | None] = mapped_column(Text)
 
 
@@ -127,7 +131,7 @@ class JobMatch(Base, TimestampMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    run_id: Mapped[uuid.UUID] = mapped_column(
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("runs.id", ondelete="SET NULL"), index=True
     )
     job_profile_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -136,28 +140,42 @@ class JobMatch(Base, TimestampMixin):
 
     external_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     source: Mapped[str] = mapped_column(String(60), nullable=False)
-    company: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    title: Mapped[str] = mapped_column(String(400), nullable=False, default="")
-    location: Mapped[str] = mapped_column(String(200), nullable=False, default="")
-    url: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
-    description_excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    salary: Mapped[str] = mapped_column(String(120), nullable=False, default="")
-    posted_date: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    company: Mapped[str] = mapped_column(String(300), nullable=False, default="", server_default="")
+    title: Mapped[str] = mapped_column(String(400), nullable=False, default="", server_default="")
+    location: Mapped[str] = mapped_column(
+        String(200), nullable=False, default="", server_default=""
+    )
+    url: Mapped[str] = mapped_column(String(1024), nullable=False, default="", server_default="")
+    description_excerpt: Mapped[str] = mapped_column(
+        Text, nullable=False, default="", server_default=""
+    )
+    salary: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    posted_date: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="", server_default=""
+    )
 
-    match_percentage: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    match_percentage: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     matched_skills: Mapped[list[str]] = mapped_column(
         ARRAY(Text), default=list, server_default="{}", nullable=False
     )
     missing_skills: Mapped[list[str]] = mapped_column(
         ARRAY(Text), default=list, server_default="{}", nullable=False
     )
-    why_fit: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    urgency: Mapped[str] = mapped_column(String(12), nullable=False, default="LOW")
-    recommended_action: Mapped[str] = mapped_column(String(40), nullable=False, default="")
-    matched_profile_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    why_fit: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    urgency: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="LOW", server_default="LOW"
+    )
+    recommended_action: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="", server_default=""
+    )
+    matched_profile_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default=""
+    )
 
     status: Mapped[MatchStatus] = mapped_column(
-        String(12), default=MatchStatus.new, index=True, nullable=False
+        String(12), default=MatchStatus.new, server_default="new", index=True, nullable=False
     )
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -172,8 +190,12 @@ class Notification(Base, TimestampMixin):
     run_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("runs.id", ondelete="SET NULL"), index=True
     )
-    channel: Mapped[str] = mapped_column(String(20), default="email", nullable=False)
+    channel: Mapped[str] = mapped_column(
+        String(20), default="email", server_default="email", nullable=False
+    )
     to_addr: Mapped[str] = mapped_column(String(320), nullable=False)
-    subject: Mapped[str] = mapped_column(String(400), nullable=False, default="")
-    status: Mapped[str] = mapped_column(String(20), default="sent", nullable=False)
+    subject: Mapped[str] = mapped_column(String(400), nullable=False, default="", server_default="")
+    status: Mapped[str] = mapped_column(
+        String(20), default="sent", server_default="sent", nullable=False
+    )
     provider_message_id: Mapped[str | None] = mapped_column(String(200))

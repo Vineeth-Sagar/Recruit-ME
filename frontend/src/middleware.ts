@@ -15,9 +15,13 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (AUTH_PAGES.includes(pathname) && hasSession) {
+  // Only bounce to /dashboard when the cookie looks usable. A `next` param means
+  // the client guard just sent the user here because its session is dead, so
+  // don't ping-pong them back into the app.
+  if (AUTH_PAGES.includes(pathname) && hasSession && !req.nextUrl.searchParams.has("next")) {
     const url = req.nextUrl.clone();
     url.pathname = "/dashboard";
+    url.search = "";
     return NextResponse.redirect(url);
   }
 

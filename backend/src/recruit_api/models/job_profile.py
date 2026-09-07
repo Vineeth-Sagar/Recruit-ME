@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import ARRAY, Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import false as sa_false
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,7 +25,9 @@ class JobProfile(Base, TimestampMixin):
     )
 
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa_false()
+    )
 
     target_roles: Mapped[list[str]] = _str_array()
     locations: Mapped[list[str]] = _str_array()
@@ -40,12 +43,18 @@ class JobProfile(Base, TimestampMixin):
     exclude_companies: Mapped[list[str]] = _str_array()
     watchlist_companies: Mapped[list[str]] = _str_array()
 
-    min_match_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
-    min_salary: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    min_match_percent: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=50, server_default="50"
+    )
+    min_salary: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
-    # LinkedIn / Indeed / Glassdoor only run for a profile that has opted in.
-    # The consent UI that flips this lands in Phase 4.6.
-    big3_optin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # LinkedIn / Indeed / Glassdoor only run for a profile that has opted in AND
+    # the fleet-wide big3_enabled_global switch is on.
+    big3_optin: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa_false()
+    )
 
     schedule_cron: Mapped[str | None] = mapped_column(String(120))
-    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata")
+    timezone: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata"
+    )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from recruit_engine.report import build_report
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.run import JobMatch, MatchStatus
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_EXPORT_ROW_CAP = 5000
 
 
 def _row(m: JobMatch) -> dict:
@@ -55,6 +57,13 @@ async def build_matches_xlsx(
         where.append(or_(JobMatch.company.ilike(like), JobMatch.title.ilike(like)))
 
     rows = list(
-        await db.scalars(select(JobMatch).where(*where).order_by(JobMatch.match_percentage.desc()))
+        await db.scalars(
+            select(JobMatch)
+            .where(*where)
+            .order_by(JobMatch.match_percentage.desc())
+            .limit(_EXPORT_ROW_CAP)
+        )
     )
-    return build_report([_row(m) for m in rows], [], "export", tips=[])
+    payload = [_row(m) for m in rows]
+    # openpyxl is synchronous and CPU-bound — keep it off the event loop.
+    return await asyncio.to_thread(build_report, payload, [], "export", tips=[])

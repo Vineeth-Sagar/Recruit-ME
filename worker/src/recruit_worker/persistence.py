@@ -99,6 +99,7 @@ async def save_result(db: AsyncSession, run: Run, result: EngineResult) -> int:
         "sources_ok": sum(1 for i in sources if i.get("status") == "ok"),
         "sources_failed": sum(1 for i in sources if i.get("status") == "failed"),
         "ai_degraded": result.ai_degraded,
+        "warnings": list(result.warnings),
         "top_missing_skills": sorted(result.missing_skills_tally.items(), key=lambda kv: -kv[1])[
             :15
         ],
@@ -156,6 +157,9 @@ async def notify_if_needed(db: AsyncSession, run: Run, *, email_sender, object_s
     html = build_report_email_html(dicts, _now().strftime("%B %d, %Y"))
     await email_sender.send(to=user.email, subject=subject, html=html)
 
+    # The mail is out — make `notified_at` durable *now*, before any further
+    # bookkeeping, so a crash between here and the caller's commit can't cause a
+    # redelivery to send a second report.
     db.add(
         Notification(
             user_id=run.user_id,
@@ -167,5 +171,5 @@ async def notify_if_needed(db: AsyncSession, run: Run, *, email_sender, object_s
         )
     )
     run.notified_at = _now()
-    await db.flush()
+    await db.commit()
     return True

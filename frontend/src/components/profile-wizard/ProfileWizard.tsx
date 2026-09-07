@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { FormProvider, useForm } from "react-hook-form";
@@ -41,6 +42,7 @@ function toForm(p: JobProfile): ProfileForm {
 
 export function ProfileWizard({ mode, profileId }: { mode: "create" | "edit"; profileId?: string }) {
   const router = useRouter();
+  const qc = useQueryClient();
   const draftKey = `rmwiz:${mode}:${profileId ?? "new"}`;
   const methods = useForm<ProfileForm>({
     resolver: zodResolver(profileSchema),
@@ -113,6 +115,8 @@ export function ProfileWizard({ mode, profileId }: { mode: "create" | "edit"; pr
       } catch {
         /* ignore */
       }
+      qc.invalidateQueries({ queryKey: ["job-profiles"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
       toast.success(mode === "edit" ? "Profile updated" : "Profile created");
       router.push("/profiles");
     } catch (e) {
