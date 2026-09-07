@@ -34,16 +34,25 @@ class User(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = uuid_pk()
     email: Mapped[str] = mapped_column(CITEXT, unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    full_name: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    full_name: Mapped[str] = mapped_column(
+        String(200), default="", server_default="", nullable=False
+    )
 
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, native_enum=False, length=20), default=UserRole.user, nullable=False
+        Enum(UserRole, native_enum=False, length=20),
+        default=UserRole.user,
+        server_default="user",
+        nullable=False,
     )
     plan: Mapped[UserPlan] = mapped_column(
-        Enum(UserPlan, native_enum=False, length=20), default=UserPlan.free, nullable=False
+        Enum(UserPlan, native_enum=False, length=20),
+        default=UserPlan.free,
+        server_default="free",
+        nullable=False,
     )
     status: Mapped[UserStatus] = mapped_column(
         Enum(UserStatus, native_enum=False, length=30),
         default=UserStatus.pending_verification,
+        server_default="pending_verification",
         nullable=False,
     )

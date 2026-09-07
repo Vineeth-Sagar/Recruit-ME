@@ -43,8 +43,15 @@ class EnvMasterKey:
         raw_multi = settings.credential_master_keys.strip()
         if raw_multi:
             for part in raw_multi.split(","):
-                ver, _, b64 = part.strip().partition(":")
-                keys[int(ver)] = _decode_key(b64)
+                part = part.strip()
+                if not part:
+                    continue
+                ver, sep, b64 = part.partition(":")
+                if not sep or not ver.strip().isdigit():
+                    raise CryptoError(
+                        f"CREDENTIAL_MASTER_KEYS entry {part!r} is not '<version>:<base64>'"
+                    )
+                keys[int(ver.strip())] = _decode_key(b64)
         elif settings.credential_master_key.strip():
             keys[1] = _decode_key(settings.credential_master_key)
 

@@ -24,6 +24,23 @@ logger = logging.getLogger(__name__)
 OnStep = Callable[[str, str, dict], Awaitable[None]]
 
 _BIG3 = "jobspy"
+# jobspy fans out to these three; their stored credentials are keyed by the site
+# name, but the scraper is registered under "jobspy".
+_BIG3_SITES = ("linkedin", "indeed", "glassdoor")
+
+
+def _creds_by_scraper(credentials: list) -> dict:
+    """Map SourceCredentials onto the scraper name that will use them. A direct
+    site→scraper match wins; the big-3 site creds are merged under "jobspy" so
+    the fan-out scraper can reach all of them from one entry."""
+    by_site = {c.site: c for c in credentials}
+    out = dict(by_site)
+    big3 = {s: by_site[s].secret for s in _BIG3_SITES if s in by_site}
+    if big3 and _BIG3 not in out:
+        from .types import SourceCredential
+
+        out[_BIG3] = SourceCredential(site=_BIG3, auth_type="cookie", secret=big3)
+    return out
 
 
 async def run_engine(
@@ -40,7 +57,7 @@ async def run_engine(
             await on_step(name, status, detail or {})
 
     result = EngineResult(run_id=inp.run_id)
-    cred_by_site = {c.site: c for c in inp.credentials}
+    cred_by_site = _creds_by_scraper(inp.credentials)
 
     # ── scrape ───────────────────────────────────────────────────────────
     all_jobs = []
@@ -93,24 +110,29 @@ async def run_engine(
     # ── match ────────────────────────────────────────────────────────────
     await step("match", "running")
     matched: list[MatchedJob] = []
-    if new_jobs and inp.resumes:
-        scored, tally, degraded = await batch_match(
-            new_jobs,
-            inp.resumes,
-            llm,
-            batch_size=inp.limits.match_batch_size,
-            max_concurrency=inp.limits.llm_max_concurrency,
-        )
-        result.missing_skills_tally = tally
-        result.ai_degraded = degraded
+    if new_jobs and not inp.resumes:
+        result.warnings.append("no parsed résumé for this profile — nothing was scored")
+        await step("match", "skipped", {"reason": "no parsed résumé for this profile"})
+    else:
+        if new_jobs and inp.resumes:
+            scored, tally, degraded = await batch_match(
+                new_jobs,
+                inp.resumes,
+                llm,
+                batch_size=inp.limits.match_batch_size,
+                max_concurrency=inp.limits.llm_max_concurrency,
+                rate_limiter=rate_limiter,
+            )
+            result.missing_skills_tally = tally
+            result.ai_degraded = degraded
 
-        wl = {c.lower() for c in inp.profile.watchlist_companies}
-        threshold = inp.profile.min_match_percent
-        for m in scored:
-            if m.match_percentage >= threshold or m.job.company.lower() in wl:
-                matched.append(m)
+            wl = {c.lower() for c in inp.profile.watchlist_companies}
+            threshold = inp.profile.min_match_percent
+            for m in scored:
+                if m.match_percentage >= threshold or m.job.company.lower() in wl:
+                    matched.append(m)
+        await step("match", "succeeded", {"matched": len(matched), "degraded": result.ai_degraded})
     result.matched = matched
-    await step("match", "succeeded", {"matched": len(matched), "degraded": result.ai_degraded})
 
     # ── report ───────────────────────────────────────────────────────────
     await step("report", "running")

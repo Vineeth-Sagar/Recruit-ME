@@ -34,13 +34,14 @@ async def load_source_credentials(
 ) -> list[SourceCredential]:
     """Every usable credential for a tenant, decrypted into engine form.
 
-    Rows known to be bad (``status == invalid``) are skipped so a run does not
-    waste a scrape on them; unverified rows are still tried.
+    Rows known to be bad (``status`` invalid or expired) are skipped so a run
+    does not waste a scrape on them; unverified rows are still tried.
     """
     rows = await db.scalars(select(SiteCredential).where(SiteCredential.user_id == user_id))
     out: list[SourceCredential] = []
+    _skip = {CredentialStatus.invalid, CredentialStatus.expired}
     for row in rows:
-        if row.status == CredentialStatus.invalid:
+        if row.status in _skip:
             continue
         try:
             secret = open_secret(envelope, row)

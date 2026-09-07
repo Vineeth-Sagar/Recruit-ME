@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -16,6 +17,12 @@ from ..models.user import User, UserStatus
 from ..security.jwt import create_access_token
 from ..security.passwords import hash_password, verify_password
 from .email_service import EmailSender
+
+logger = logging.getLogger("recruit_api.auth")
+
+# A constant-work hash so `login` spends the same time whether or not the email
+# exists — no account-enumeration timing oracle.
+_DUMMY_HASH = hash_password("timing-equalizer-not-a-real-password")
 
 
 def _hash_token(raw: str) -> str:
@@ -96,10 +103,17 @@ class AuthService:
         self, email: str, password: str, *, user_agent: str, ip: str
     ) -> tuple[str, str, int]:
         user = await self.db.scalar(select(User).where(User.email == email))
-        if user is None or not verify_password(password, user.password_hash):
+        if user is None:
+            verify_password(password, _DUMMY_HASH)  # equalize timing
+            raise AuthError("invalid email or password")
+        if not verify_password(password, user.password_hash):
             raise AuthError("invalid email or password")
         if user.status == UserStatus.suspended:
             raise ForbiddenError("this account is suspended")
+        if user.status == UserStatus.pending_verification:
+            raise ForbiddenError(
+                "confirm your email address before signing in", code="email_unverified"
+            )
 
         access = self._access_for(user)
         raw_refresh = await self._issue_refresh(user, user_agent=user_agent, ip=ip)
@@ -111,10 +125,10 @@ class AuthService:
         )
         if row is None:
             raise AuthError("invalid refresh token")
+
         if row.revoked_at is not None:
-            # Reuse of an already-rotated token — treat the whole family as compromised.
-            await self._revoke_all_for_user(row.user_id)
-            raise AuthError("refresh token reuse detected; all sessions revoked")
+            return await self._handle_revoked(row, user_agent=user_agent, ip=ip)
+
         if row.expires_at <= _now():
             raise AuthError("refresh token expired")
 
@@ -127,6 +141,38 @@ class AuthService:
             user, user_agent=user_agent, ip=ip, rotated_from_id=row.id
         )
         return self._access_for(user), new_raw, self.settings.access_token_ttl_seconds
+
+    async def _handle_revoked(
+        self, row: RefreshToken, *, user_agent: str, ip: str
+    ) -> tuple[str, str, int]:
+        """A revoked token was presented. Within a short grace window, if the
+        legitimate rotation child is still live, this is a concurrent
+        double-refresh (two tabs / two devices) — continue the chain from the
+        child. Otherwise it is a replay: revoke the whole family."""
+        grace = timedelta(seconds=self.settings.refresh_reuse_grace_seconds)
+        child = await self.db.scalar(
+            select(RefreshToken).where(RefreshToken.rotated_from_id == row.id)
+        )
+        fresh_race = (
+            child is not None
+            and child.revoked_at is None
+            and row.revoked_at is not None
+            and (_now() - row.revoked_at) < grace
+        )
+        if fresh_race:
+            assert child is not None
+            user = await self.db.get(User, row.user_id)
+            if user is None or user.status == UserStatus.suspended:
+                raise ForbiddenError("account unavailable")
+            child.revoked_at = _now()
+            new_raw = await self._issue_refresh(
+                user, user_agent=user_agent, ip=ip, rotated_from_id=child.id
+            )
+            return self._access_for(user), new_raw, self.settings.access_token_ttl_seconds
+
+        await self._revoke_all_for_user(row.user_id)
+        await self.db.commit()  # persist the revocation before the request unwinds
+        raise AuthError("refresh token reuse detected; all sessions revoked")
 
     async def logout(self, raw: str | None) -> None:
         if not raw:
@@ -202,4 +248,9 @@ class AuthService:
         await revoke_all_refresh_tokens(self.db, user_id)
 
     async def _send(self, to: str, subject: str, html: str) -> None:
-        await self.email.send(to=to, subject=subject, html=html)
+        # A provider outage must not roll back the signup / reset transaction or
+        # (for reset) leak account existence by 500-ing only for known addresses.
+        try:
+            await self.email.send(to=to, subject=subject, html=html)
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to send %r email to %s", subject, to)

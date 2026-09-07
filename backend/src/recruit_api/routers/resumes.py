@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
 from pydantic import BaseModel
 
 from ..schemas.resume import ResumeOut, ResumeParseOut
 from ..security.deps import CurrentUser, get_resume_service
-from ..services.resume_service import ResumeService
+from ..services.resume_service import PayloadTooLargeError, ResumeService
 
 
 class ResumeLinkIn(BaseModel):
@@ -32,14 +32,28 @@ async def _to_out(svc: ResumeService, resume) -> ResumeOut:
 
 @router.post("", response_model=ResumeOut, status_code=status.HTTP_201_CREATED)
 async def upload_resume(
+    request: Request,
     user: CurrentUser,
     svc: SvcDep,
     file: Annotated[UploadFile, File()],
     job_profile_id: Annotated[uuid.UUID | None, Form()] = None,
 ) -> ResumeOut:
-    content = await file.read()
+    # Reject on the declared size before reading the body into memory.
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > svc.max_bytes * 2:
+        raise PayloadTooLargeError(f"upload exceeds {svc.max_bytes} bytes")
+
+    # Read in bounded chunks; abort as soon as the cap is exceeded.
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(1 << 20):
+        total += len(chunk)
+        if total > svc.max_bytes:
+            raise PayloadTooLargeError(f"résumé exceeds {svc.max_bytes} bytes")
+        chunks.append(chunk)
+
     resume = await svc.upload(
-        user.id, file.filename or "resume.pdf", content, job_profile_id=job_profile_id
+        user.id, file.filename or "resume.pdf", b"".join(chunks), job_profile_id=job_profile_id
     )
     return await _to_out(svc, resume)
 

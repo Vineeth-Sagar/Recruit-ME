@@ -14,7 +14,7 @@ import json
 import logging
 
 from .ai import AI_UNAVAILABLE_MARKER, _extract_json, _fallback_keyword_score, _resume_skills
-from .ports import LLMClient
+from .ports import LLMClient, RateLimiter
 from .types import JobPosting, MatchedJob, ResumeParse
 
 logger = logging.getLogger(__name__)
@@ -98,12 +98,34 @@ async def _score_batch(
     return result
 
 
+def _as_pct(value: object) -> int:
+    """Coerce whatever the model returned ("85", "85%", 85, "high", None) into
+    a 0-100 int without ever raising."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int | float):
+        return max(0, min(100, int(value)))
+    if isinstance(value, str):
+        digits = "".join(c for c in value if c.isdigit())
+        if digits:
+            return max(0, min(100, int(digits)))
+    return 0
+
+
+def _as_str_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, list | tuple):
+        return [str(v) for v in value if str(v).strip()]
+    return []
+
+
 def _to_matched(job: JobPosting, res: dict, profile_id: str) -> MatchedJob:
     return MatchedJob(
         job=job,
-        match_percentage=int(res.get("match_percentage", 0) or 0),
-        matched_skills=list(res.get("matched_skills", []) or []),
-        missing_skills=list(res.get("missing_skills", []) or []),
+        match_percentage=_as_pct(res.get("match_percentage")),
+        matched_skills=_as_str_list(res.get("matched_skills")),
+        missing_skills=_as_str_list(res.get("missing_skills")),
         why_fit=str(res.get("why_good_fit", "")),
         urgency=str(res.get("urgency", "LOW")).upper(),
         recommended_action=str(res.get("recommended_action", "Skip")),
@@ -118,8 +140,13 @@ async def batch_match(
     *,
     batch_size: int = 20,
     max_concurrency: int = 1,
+    rate_limiter: RateLimiter | None = None,
 ) -> tuple[list[MatchedJob], dict[str, int], bool]:
-    """Return (best match per job, missing-skill tally, ai_degraded)."""
+    """Return (best match per job, missing-skill tally, ai_degraded).
+
+    When ``rate_limiter`` is given, one ``"openrouter"`` token is acquired per
+    LLM batch so a run with many batches can't stampede the provider into 429s.
+    """
     if not jobs or not resumes:
         return [], {}, False
 
@@ -129,6 +156,13 @@ async def batch_match(
         resume: ResumeParse, start: int
     ) -> tuple[int, ResumeParse, dict[str, dict]]:
         async with sem:
+            if rate_limiter is not None:
+                try:
+                    await rate_limiter.acquire("openrouter")
+                except TimeoutError:
+                    # Limiter contended — let the call through; _score_batch
+                    # keyword-falls-back if the provider then 429s.
+                    logger.warning("openrouter rate limiter starved; proceeding")
             return start, resume, await _score_batch(jobs[start : start + batch_size], resume, llm)
 
     tasks = [

@@ -30,10 +30,10 @@ logs:
 infra:
 	docker compose up -d postgres redis minio minio-setup
 
-migrate:
+migrate: build
 	docker compose run --rm migrate
 
-seed:
+seed: build
 	docker compose run --rm seed
 
 build:

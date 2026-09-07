@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import Request, status
+import logging
+
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger("recruit_api.errors")
 
 
 class AppError(Exception):
@@ -39,10 +44,40 @@ class ConflictError(AppError):
     code = "conflict"
 
 
+def _envelope(status_code: int, code: str, message: str, extra: object = None) -> JSONResponse:
+    body: dict = {"error": {"code": code, "message": message}}
+    if extra is not None:
+        body["error"]["detail"] = extra
+    return JSONResponse(
+        status_code=status_code,
+        content=body,
+        headers={"WWW-Authenticate": "Bearer"} if status_code == 401 else None,
+    )
+
+
 async def app_error_handler(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, AppError)  # registered only for AppError
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": {"code": exc.code, "message": exc.message}},
-        headers={"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None,
+    return _envelope(exc.status_code, exc.code, exc.message)
+
+
+async def validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, RequestValidationError)
+    return _envelope(
+        422,
+        "validation_error",
+        "the request body failed validation",
+        extra=[{"loc": e.get("loc"), "msg": e.get("msg")} for e in exc.errors()],
     )
+
+
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("unhandled error on %s %s", request.method, request.url.path)
+    return _envelope(
+        status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "an unexpected error occurred"
+    )
+
+
+def register_error_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(AppError, app_error_handler)
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
+    app.add_exception_handler(Exception, unhandled_error_handler)

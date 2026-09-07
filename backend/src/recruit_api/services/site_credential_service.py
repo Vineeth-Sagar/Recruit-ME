@@ -9,6 +9,7 @@ so a compromised web process cannot read stored secrets.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 
 from sqlalchemy import select
@@ -19,6 +20,8 @@ from ..models.site_credential import CredentialSite, CredentialStatus, SiteCrede
 from ..queue import Enqueue
 from ..schemas.site_credential import SiteCredentialIn
 from ..security.crypto import Envelope
+
+logger = logging.getLogger("recruit_api.site_credentials")
 
 
 class SiteCredentialService:
@@ -73,13 +76,21 @@ class SiteCredentialService:
         await self.db.refresh(row)
         # Commit before enqueue so the worker's own session sees the fresh row.
         await self.db.commit()
-        await self.enqueue("verify_credential", str(row.id))
+        await self._try_enqueue_verify(row.id)
         return row
 
     async def verify(self, user_id: uuid.UUID, site: CredentialSite) -> SiteCredential:
         row = await self.get(user_id, site)
-        await self.enqueue("verify_credential", str(row.id))
+        await self._try_enqueue_verify(row.id)
         return row
+
+    async def _try_enqueue_verify(self, cred_id: uuid.UUID) -> None:
+        # A queue outage must not fail the save; the credential is stored and the
+        # user can re-trigger verification from Settings.
+        try:
+            await self.enqueue("verify_credential", str(cred_id))
+        except Exception:  # noqa: BLE001
+            logger.warning("could not enqueue verify_credential for %s", cred_id)
 
     async def delete(self, user_id: uuid.UUID, site: CredentialSite) -> None:
         row = await self.get(user_id, site)

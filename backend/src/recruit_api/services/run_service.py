@@ -15,7 +15,8 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..errors import ConflictError, NotFoundError
+from ..db import get_sessionmaker
+from ..errors import NotFoundError
 from ..models.job_profile import JobProfile
 from ..models.run import (
     TERMINAL_RUN_STATUSES,
@@ -33,9 +34,14 @@ def _now() -> datetime:
 
 
 class RunService:
-    def __init__(self, db: AsyncSession, enqueue: Enqueue):
+    def __init__(self, db: AsyncSession, enqueue: Enqueue, *, stream_sessionmaker=None):
         self.db = db
         self.enqueue = enqueue
+        # Short-lived sessions for the SSE poll loop, so a viewer doesn't pin the
+        # request's pooled connection. Overridable for tests.
+        self._stream_sm = (
+            stream_sessionmaker if stream_sessionmaker is not None else get_sessionmaker()
+        )
 
     async def _owned_profile(self, user_id: uuid.UUID, profile_id: uuid.UUID) -> JobProfile:
         profile = await self.db.get(JobProfile, profile_id)
@@ -54,10 +60,11 @@ class RunService:
         await self._owned_profile(user_id, profile_id)
         key = idempotency_key or f"{trigger.value}:{profile_id}:{uuid.uuid4().hex}"
 
-        existing = await self.db.scalar(select(Run).where(Run.idempotency_key == key))
+        # Idempotency keys are namespaced per tenant.
+        existing = await self.db.scalar(
+            select(Run).where(Run.user_id == user_id, Run.idempotency_key == key)
+        )
         if existing is not None:
-            if existing.user_id != user_id:
-                raise ConflictError("idempotency key already used")
             return existing, False
 
         run = Run(
@@ -133,10 +140,26 @@ class RunService:
     async def stream_events(
         self, user_id: uuid.UUID, run_id: uuid.UUID, *, poll_s: float = 1.0, max_polls: int = 900
     ) -> AsyncIterator[str]:
-        run = await self.get(user_id, run_id)
+        """Poll the run's steps/status until terminal. Each iteration uses its
+        own short-lived session so a long-lived viewer never pins a pooled
+        connection or holds a transaction open for minutes."""
         sent = 0
+        status = "unknown"
         for _ in range(max_polls):
-            for step in (await self.steps(run_id))[sent:]:
+            async with self._stream_sm() as db:
+                run = await db.get(Run, run_id)
+                if run is None or run.user_id != user_id:
+                    yield _sse("done", {"status": "gone"})
+                    return
+                status = str(run.status)
+                steps = list(
+                    await db.scalars(
+                        select(RunStep).where(RunStep.run_id == run_id).order_by(RunStep.at)
+                    )
+                )
+                stats = run.stats
+                terminal = run.status in TERMINAL_RUN_STATUSES
+            for step in steps[sent:]:
                 sent += 1
                 yield _sse(
                     "step",
@@ -147,12 +170,11 @@ class RunService:
                         "at": step.at.isoformat(),
                     },
                 )
-            await self.db.refresh(run)
-            if run.status in TERMINAL_RUN_STATUSES:
-                yield _sse("done", {"status": str(run.status), "stats": run.stats})
+            if terminal:
+                yield _sse("done", {"status": status, "stats": stats})
                 return
             await asyncio.sleep(poll_s)
-        yield _sse("timeout", {"status": str(run.status)})
+        yield _sse("timeout", {"status": status})
 
 
 def _sse(event: str, data: dict) -> str:

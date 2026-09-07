@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     jwt_public_key: str = ""
     access_token_ttl_seconds: int = 900
     refresh_token_ttl_seconds: int = 2_592_000  # 30 days
+    # A revoked refresh token presented within this window, while its rotation
+    # child is still live, is treated as a benign concurrent refresh (two tabs)
+    # rather than a stolen-token replay.
+    refresh_reuse_grace_seconds: int = 10
 
     email_provider: str = "console"  # console | resend
     resend_api_key: str = ""
@@ -46,6 +50,12 @@ class Settings(BaseSettings):
 
     # Upload limits
     max_resume_bytes: int = 10 * 1024 * 1024
+
+    # Scraping policy. LinkedIn / Indeed / Glassdoor run only when a profile has
+    # opted in AND this fleet-wide switch is on. `http_proxy_url`, when set, is
+    # the egress proxy the worker's scrapers route through.
+    big3_enabled_global: bool = False
+    http_proxy_url: str = ""
 
     frontend_base_url: str = "http://localhost:3000"
 

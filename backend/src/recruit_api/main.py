@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
-from .errors import AppError, app_error_handler
+from .errors import register_error_handlers
 from .middleware import RequestContextMiddleware
 from .routers import (
     account,
@@ -42,7 +42,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.add_exception_handler(AppError, app_error_handler)
+    register_error_handlers(app)
 
     api_prefix = "/api/v1"
     app.include_router(auth.router, prefix=api_prefix)

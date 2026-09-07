@@ -5,17 +5,21 @@ fresh session to mark the run ``queued`` (transient → arq ``Retry``) or
 ``failed``. Every write inside is idempotent, so a retry resumes cleanly:
 ``save_result`` upserts, and ``notify_if_needed`` is guarded by
 ``runs.notified_at`` and builds its report from the DB, not this attempt's
-in-memory matches.
+in-memory matches. If a retry lands after the matches were already saved, the
+scrape/match phase is skipped and only the notification is re-attempted.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import uuid
 from datetime import UTC, datetime
 
+import httpx
 from arq import Retry
+from botocore.exceptions import BotoCoreError
 from recruit_api.models.run import Run, RunStatus
 from recruit_engine.engine import run_engine
 
@@ -25,8 +29,31 @@ from ..run_context import build_input
 
 logger = logging.getLogger("recruit_worker.execute_run")
 
-_TRANSIENT_TYPES: tuple[type[BaseException], ...] = (ConnectionError, TimeoutError)
-_TRANSIENT_HINTS = ("timeout", "429", "503", "502", "connection reset", "temporarily unavailable")
+_TRANSIENT_TYPES: tuple[type[BaseException], ...] = (
+    ConnectionError,
+    TimeoutError,
+    BotoCoreError,  # EndpointConnectionError, ConnectionClosedError, ...
+    httpx.TransportError,  # ConnectError, ReadTimeout, RemoteProtocolError, ...
+)
+_TRANSIENT_HINTS = (
+    "timeout",
+    "429",
+    "500",
+    "502",
+    "503",
+    "504",
+    "connection reset",
+    "connection refused",
+    "connection closed",
+    "connection aborted",
+    "broken pipe",
+    "eof occurred",
+    "temporarily unavailable",
+    "service unavailable",
+    "bad gateway",
+    "gateway timeout",
+    "server disconnected",
+)
 
 
 def _now() -> datetime:
@@ -36,6 +63,8 @@ def _now() -> datetime:
 def _is_transient(exc: BaseException) -> bool:
     if isinstance(exc, _TRANSIENT_TYPES):
         return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500 or exc.response.status_code == 429
     s = str(exc).lower()
     return any(h in s for h in _TRANSIENT_HINTS)
 
@@ -50,8 +79,11 @@ async def execute_run(ctx: dict, run_id: str) -> None:
         await _run_once(ctx, run_id)
     except Retry:
         raise
-    except Exception as exc:  # noqa: BLE001
-        transient = _is_transient(exc)
+    except (Exception, asyncio.CancelledError) as exc:  # noqa: BLE001
+        # asyncio.CancelledError is how arq's job_timeout surfaces — it is a
+        # BaseException, so it would otherwise slip past and leave the run stuck
+        # at `running`. Treat a timeout as transient.
+        transient = _is_transient(exc) or isinstance(exc, asyncio.CancelledError)
         async with sessionmaker() as db:
             run = await db.get(Run, uuid.UUID(run_id))
             if run is None:
@@ -62,11 +94,17 @@ async def execute_run(ctx: dict, run_id: str) -> None:
                 await db.commit()
                 logger.warning("run %s transient failure, retrying: %s", run_id, exc)
                 raise Retry(defer=_backoff_seconds(run.attempt)) from exc
-            run.status = RunStatus.failed
+            # Out of retries. If the run produced matches, the work succeeded and
+            # only delivery is outstanding — mark it partial (not failed) and
+            # leave notified_at NULL so the scheduler's sweep can still deliver.
+            has_matches = bool((run.stats or {}).get("matched"))
+            run.status = RunStatus.partial if has_matches else RunStatus.failed
             run.error_summary = f"{type(exc).__name__}: {exc}"[:2000]
             run.finished_at = _now()
             await db.commit()
-            logger.exception("run %s failed", run_id)
+            logger.exception("run %s -> %s", run_id, run.status)
+        if isinstance(exc, asyncio.CancelledError):
+            raise
 
 
 async def _run_once(ctx: dict, run_id: str) -> None:
@@ -77,8 +115,29 @@ async def _run_once(ctx: dict, run_id: str) -> None:
         if run is None:
             logger.warning("run %s not found", run_id)
             return
-        if run.is_terminal:
+        if run.is_terminal and run.notified_at is not None:
             logger.info("run %s already %s — no-op", run_id, run.status)
+            return
+
+        # Fast path: a retry after the matches were already saved. Skip the
+        # scrape/match phase (re-hitting job sites) and only retry the report.
+        already_scored = (run.stats or {}).get("matched") is not None
+        if already_scored and run.notified_at is None:
+            logger.info("run %s already scored — retrying notification only", run_id)
+            run.attempt += 1
+            run.worker_id = ctx.get("worker_id", "worker")
+            await db.commit()
+            await notify_if_needed(
+                db, run, email_sender=ctx["email_sender"], object_store=ctx["object_store"]
+            )
+            if not run.is_terminal:
+                run.status = (
+                    RunStatus.partial
+                    if (run.stats or {}).get("sources_failed")
+                    else RunStatus.succeeded
+                )
+                run.finished_at = run.finished_at or _now()
+                await db.commit()
             return
 
         run.status = RunStatus.running

@@ -9,7 +9,6 @@ continuously at ``rpm/60`` tokens/sec up to ``burst``.
 from __future__ import annotations
 
 import asyncio
-import time
 
 from redis.asyncio import Redis
 
@@ -25,7 +24,9 @@ local function level(key, rate, burst, now)
   return math.min(burst, tok + elapsed * rate), ts
 end
 
-local now = tonumber(ARGV[5])
+-- Redis server clock, so fleet clock skew can't distort the shared ceiling.
+local st = redis.call('TIME')
+local now = tonumber(st[1]) * 1000 + math.floor(tonumber(st[2]) / 1000)
 local t_rate = tonumber(ARGV[1]); local t_burst = tonumber(ARGV[2])
 local g_rate = tonumber(ARGV[3]); local g_burst = tonumber(ARGV[4])
 local t_tok = level(KEYS[1], t_rate, t_burst, now)
@@ -74,7 +75,7 @@ class RedisTokenBucket:
         while True:
             allowed, wait_ms = await self._script(
                 keys=[tenant_key, global_key],
-                args=[t_rate, p.burst, g_rate, p.global_burst, int(time.time() * 1000)],
+                args=[t_rate, p.burst, g_rate, p.global_burst],
             )
             if int(allowed) == 1:
                 if p.min_delay_ms:
@@ -83,6 +84,11 @@ class RedisTokenBucket:
             nap = min(max(int(wait_ms), 1) / 1000.0, self._sleep_cap_s)
             waited += nap
             if waited > self._max_wait_s:
-                # Don't wedge a run forever — proceed and let the site push back.
-                return
+                # The shared-egress ceiling is not negotiable: fail this source
+                # rather than proceed unthrottled. The engine degrades the run
+                # to `partial`; TimeoutError is treated as transient at the
+                # run level so a later retry can re-attempt.
+                raise TimeoutError(
+                    f"rate limiter: no capacity for {site!r} after {self._max_wait_s:.0f}s"
+                )
             await asyncio.sleep(nap)

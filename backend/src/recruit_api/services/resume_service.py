@@ -46,10 +46,15 @@ class ResumeService:
         *,
         job_profile_id: uuid.UUID | None = None,
     ) -> Resume:
-        if not content.startswith(_PDF_MAGIC):
-            raise UnsupportedMediaError("only PDF résumés are accepted")
         if len(content) > self.max_bytes:
             raise PayloadTooLargeError(f"résumé exceeds {self.max_bytes} bytes")
+        if not content.startswith(_PDF_MAGIC):
+            raise UnsupportedMediaError("only PDF résumés are accepted")
+
+        if job_profile_id is not None:
+            profile = await self.db.get(JobProfile, job_profile_id)
+            if profile is None or profile.user_id != user_id:
+                raise NotFoundError("job profile not found")
 
         resume = Resume(
             id=uuid.uuid4(),

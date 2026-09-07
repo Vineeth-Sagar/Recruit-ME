@@ -1,15 +1,16 @@
 """Account self-service: change password, change email, delete account.
 
 Any credential change (new password, confirmed new email) revokes every live
-refresh token. Deleting the account wipes the tenant's object-storage prefixes
-and then removes the ``users`` row; the FK cascades take every dependent table
-with it, and the still-valid access JWT stops working on its next request
-because :func:`get_current_user` can no longer load the user.
+refresh token. Deleting the account removes the ``users`` row first (the FK
+cascades take every dependent table), then wipes the tenant's object-storage
+prefixes; the still-valid access JWT stops working on its next request because
+:func:`get_current_user` can no longer load the user.
 """
 
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -25,6 +26,8 @@ from ..security.passwords import hash_password, verify_password
 from .auth_service import revoke_all_refresh_tokens
 from .email_service import EmailSender
 from .object_store import ObjectStore
+
+logger = logging.getLogger("recruit_api.account")
 
 
 def _hash_token(raw: str) -> str:
@@ -117,8 +120,17 @@ class AccountService:
             raise AuthError("confirmation email does not match this account")
 
         user_id: uuid.UUID = user.id
-        await self.store.delete_prefix(f"resumes/{user_id}/")
-        await self.store.delete_prefix(f"reports/{user_id}/")
 
+        # Commit the account removal first (FK cascades take every tenant row).
+        # Only then wipe object storage — if that fails, the DB delete stands and
+        # a stray object costs a few cents, versus destroying files under an
+        # account that still exists.
         await self.db.delete(user)
         await self.db.flush()
+        await self.db.commit()
+
+        for prefix in (f"resumes/{user_id}/", f"reports/{user_id}/"):
+            try:
+                await self.store.delete_prefix(prefix)
+            except Exception:  # noqa: BLE001
+                logger.exception("post-delete storage wipe failed for %s", prefix)

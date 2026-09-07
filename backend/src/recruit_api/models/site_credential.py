@@ -63,6 +63,7 @@ class SiteCredential(Base, TimestampMixin):
     auth_type: Mapped[CredentialAuthType] = mapped_column(
         Enum(CredentialAuthType, native_enum=False, length=20),
         default=CredentialAuthType.cookie,
+        server_default="cookie",
         nullable=False,
     )
 
@@ -70,11 +71,14 @@ class SiteCredential(Base, TimestampMixin):
     nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     key_version: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    label: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    label: Mapped[str] = mapped_column(String(120), default="", server_default="", nullable=False)
     status: Mapped[CredentialStatus] = mapped_column(
         Enum(CredentialStatus, native_enum=False, length=20),
         default=CredentialStatus.unverified,
+        server_default="unverified",
         nullable=False,
     )
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    verify_error: Mapped[str] = mapped_column(String(400), default="", nullable=False)
+    verify_error: Mapped[str] = mapped_column(
+        String(400), default="", server_default="", nullable=False
+    )
