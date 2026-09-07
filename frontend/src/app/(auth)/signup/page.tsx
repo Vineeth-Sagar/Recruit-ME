@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -21,7 +22,8 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 export default function SignupPage() {
-  const { signup, login } = useAuth();
+  const { signup } = useAuth();
+  const router = useRouter();
   const {
     register,
     handleSubmit,
@@ -31,8 +33,8 @@ export default function SignupPage() {
   async function onSubmit(values: FormValues) {
     try {
       await signup(values.email, values.password, values.full_name);
-      await login(values.email, values.password);
-      window.location.assign("/dashboard");
+      toast.success("Account created — check your email to confirm it, then sign in.");
+      router.replace("/login");
     } catch (e) {
       if (e instanceof ApiError && e.code === "email_taken") {
         toast.error("That email is already registered");

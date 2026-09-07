@@ -42,12 +42,12 @@ reloading entrypoint.
 `docker compose logs api` / `logs worker`. Set `EMAIL_PROVIDER=resend` +
 `RESEND_API_KEY` for real delivery.
 
-**The `/api` proxy:** in the compose stack the browser calls `/api/*` on the web
-origin and the Next server proxies to the API. That target is baked at image
-build time from `--build-arg API_PROXY_TARGET` (default `http://api:8000`) — the
-standalone server does not re-read it at runtime. Behind a real reverse proxy or
-a k8s Ingress that already routes `/api` to the API service, those calls never
-reach the Next server, so the baked value is irrelevant there.
+**The `/api` proxy:** the browser calls `/api/*` on the web origin and a Next
+route handler (`src/app/api/[...path]/route.ts`) forwards to `API_PROXY_TARGET`,
+read fresh on every request — set it in the environment (compose does, to
+`http://api:8000`). Behind a reverse proxy or k8s Ingress that already routes
+`/api` to the API service those calls never reach the Next server, so the value
+doesn't matter there.
 
 ---
 
@@ -76,7 +76,7 @@ reach the Next server, so the baked value is irrelevant there.
 | `api`        | Deployment + HPA | 2–N      | `readinessProbe: GET /health`; `ENV=prod` |
 | `worker`     | Deployment + KEDA | 0–N     | one Deployment per pool; `--queue-name scrape|match` |
 | `scheduler`  | Deployment       | 1        | `leaderElection` (or a single replica + PDB `maxUnavailable: 0`) |
-| `web`        | Deployment + HPA | 2–N      | built with `--build-arg API_PROXY_TARGET=http://api:8000` (baked, not runtime) |
+| `web`        | Deployment + HPA | 2–N      | `API_PROXY_TARGET=http://api:8000` in the env (read per request) |
 | `migrate`    | Job              | 1        | `helm.sh/hook: pre-install,pre-upgrade` |
 
 ### Worker autoscale trigger — Redis list length

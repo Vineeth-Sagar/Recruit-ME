@@ -25,7 +25,10 @@ export function StepResume({
   useEffect(() => {
     if (!resumeId) return;
     let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let tries = 0;
     async function poll() {
+      tries += 1;
       try {
         const r = await resumesApi.get(resumeId!);
         if (stopped) return;
@@ -38,14 +41,19 @@ export function StepResume({
           setError(r.parse_error ?? "Parsing failed.");
           return;
         }
-        setTimeout(poll, 1500);
+        if (tries >= 60) {
+          setError("Parsing is taking longer than expected — check back later.");
+          return;
+        }
+        timer = setTimeout(poll, 1500);
       } catch {
-        if (!stopped) setTimeout(poll, 2500);
+        if (!stopped && tries < 60) timer = setTimeout(poll, 2500);
       }
     }
     poll();
     return () => {
       stopped = true;
+      if (timer) clearTimeout(timer);
     };
   }, [resumeId]);
 

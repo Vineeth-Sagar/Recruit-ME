@@ -12,11 +12,6 @@ RUN npm ci
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
-# next.config.mjs bakes the /api/* proxy target at build time (the standalone
-# server does not re-read it). Override for a non-compose deploy:
-#   docker build --build-arg API_PROXY_TARGET=https://api.example.com ...
-ARG API_PROXY_TARGET=http://api:8000
-ENV API_PROXY_TARGET=$API_PROXY_TARGET
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

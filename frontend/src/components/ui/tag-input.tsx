@@ -19,11 +19,14 @@ export function TagInput({
   const [draft, setDraft] = useState("");
 
   function commit(raw: string) {
-    const parts = raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .filter((s) => !value.includes(s));
+    const seen = new Set(value);
+    const parts: string[] = [];
+    for (const s of raw.split(",").map((x) => x.trim())) {
+      if (s && !seen.has(s)) {
+        seen.add(s); // de-dupe within the paste too, not just against `value`
+        parts.push(s);
+      }
+    }
     if (parts.length) onChange([...value, ...parts]);
     setDraft("");
   }

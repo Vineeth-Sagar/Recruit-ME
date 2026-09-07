@@ -15,8 +15,12 @@ export default function CredentialsSettingsPage() {
   const creds = useQuery({
     queryKey: ["site-credentials"],
     queryFn: credentialsApi.list,
-    refetchInterval: (q) =>
-      (q.state.data ?? []).some((c) => c.status === "unverified") ? 3000 : false,
+    refetchInterval: (q) => {
+      const pending = (q.state.data ?? []).some((c) => c.status === "unverified");
+      // Stop after ~2 min so a never-run verify job doesn't poll forever.
+      const tooLong = q.state.dataUpdateCount > 40;
+      return pending && !tooLong ? 3000 : false;
+    },
   });
   const profiles = useQuery({ queryKey: ["job-profiles"], queryFn: profilesApi.list });
 

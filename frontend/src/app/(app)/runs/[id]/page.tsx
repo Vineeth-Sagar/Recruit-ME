@@ -40,6 +40,9 @@ export default function RunDetailPage({ params }: { params: { id: string } }) {
   const steps = liveSteps.length > run.steps.length ? liveSteps : run.steps;
   const status: RunStatus = liveStatus ?? run.status;
   const stats = run.stats as Record<string, unknown>;
+  // Use the merged status (SSE flips it ~2.5s before the poll would) so the
+  // Cancel button disappears the moment the run finishes.
+  const showCancel = !TERMINAL_RUN_STATUSES.includes(status);
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -47,8 +50,13 @@ export default function RunDetailPage({ params }: { params: { id: string } }) {
         <Link href="/runs" className="text-sm text-muted-foreground hover:text-foreground">
           ← Runs
         </Link>
-        {live && (
-          <Button variant="outline" size="sm" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+        {showCancel && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => cancel.mutate()}
+            disabled={cancel.isPending}
+          >
             Cancel run
           </Button>
         )}

@@ -1,7 +1,7 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense, useState } from "react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -21,18 +21,48 @@ export default function MatchesPage() {
   );
 }
 
+const PAGE_SIZE = 50;
+
 function MatchesInner() {
   const qc = useQueryClient();
   const runFilter = useSearchParams().get("run") ?? undefined;
   const [minMatch, setMinMatch] = useState(0);
   const [status, setStatus] = useState<MatchStatus | "">("");
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
 
-  const query = { run: runFilter, min_match: minMatch, status: status || undefined, q: q || undefined, page_size: 100 };
+  // Debounce the free-text and slider so we don't fire a request per keystroke
+  // / per slider tick (which also trips the API's rate-limit buckets).
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [debouncedMin, setDebouncedMin] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedQ(q);
+      setDebouncedMin(minMatch);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q, minMatch]);
+  useEffect(() => setPage(1), [status, runFilter]);
+
+  const query = {
+    run: runFilter,
+    min_match: debouncedMin,
+    status: status || undefined,
+    q: debouncedQ || undefined,
+    page,
+    page_size: PAGE_SIZE,
+  };
   const { data, isLoading } = useQuery({
     queryKey: ["matches", query],
     queryFn: () => matchesApi.list(query),
+    placeholderData: keepPreviousData,
   });
+
+  const total = data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE, total);
 
   const patch = useMutation({
     mutationFn: ({ id, s }: { id: string; s: MatchStatus }) => matchesApi.patch(id, s),
@@ -49,16 +79,20 @@ function MatchesInner() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Matches</h1>
           <p className="text-sm text-muted-foreground">
-            {data ? `${data.total} match${data.total === 1 ? "" : "es"}` : "…"}
+            {data ? `${total} match${total === 1 ? "" : "es"}` : "…"}
+            {total > PAGE_SIZE ? ` · showing ${from}–${to}` : ""}
             {runFilter ? " · filtered to one run" : ""}
           </p>
         </div>
         <Button
           variant="outline"
           onClick={() =>
-            downloadMatchesXlsx({ run: runFilter, min_match: minMatch, status: status || undefined, q: q || undefined }).catch(
-              () => toast.error("Export failed"),
-            )
+            downloadMatchesXlsx({
+              run: runFilter,
+              min_match: debouncedMin,
+              status: status || undefined,
+              q: debouncedQ || undefined,
+            }).catch(() => toast.error("Export failed"))
           }
         >
           Export .xlsx
@@ -135,6 +169,32 @@ function MatchesInner() {
             </table>
           </div>
         </Card>
+      )}
+
+      {total > PAGE_SIZE && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">
+            Page {page} of {pageCount}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= pageCount}
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );
